@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Clients - Sales{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Clients</h1>
+        <p class="text-sm text-slate-500">
+            <a href="{{ url_for('sales_overview') }}" class="hover:underline">← Back to Sales</a>
+        </p>
+    </div>
+    <a href="{{ url_for('sales_client_new') }}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
+        + New Client
+    </a>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6">
+    {% if clients %}
+    <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+            <thead class="bg-slate-100 text-slate-700">
+                <tr>
+                    <th class="px-3 py-2 text-left">Name</th>
+                    <th class="px-3 py-2 text-left">Type</th>
+                    <th class="px-3 py-2 text-left">Email</th>
+                    <th class="px-3 py-2 text-left">Phone</th>
+                    <th class="px-3 py-2 text-center">Invoices</th>
+                    <th class="px-3 py-2 text-left">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in clients %}
+                <tr class="border-t">
+                    <td class="px-3 py-2 font-medium">{{ c.name }}</td>
+                    <td class="px-3 py-2">
+                        <span class="bg-slate-200 text-slate-700 text-xs px-2 py-1 rounded">
+                            {{ c.client_type|capitalize }}
+                        </span>
+                    </td>
+                    <td class="px-3 py-2 text-xs">{{ c.email or '—' }}</td>
+                    <td class="px-3 py-2 text-xs">{{ c.phone or '—' }}</td>
+                    <td class="px-3 py-2 text-center">{{ c.invoices|length }}</td>
+                    <td class="px-3 py-2 text-xs">
+                        <a href="{{ url_for('sales_client_edit', client_id=c.id) }}"
+                           class="text-blue-600 hover:underline">Edit</a>
+                        <form method="POST" action="{{ url_for('sales_client_delete', client_id=c.id) }}"
+                              class="inline"
+                              onsubmit="return confirm('Delete this client? (Only works if no invoices)');">
+                            <button type="submit" class="text-red-600 hover:underline ml-2">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-sm text-slate-500">No clients yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

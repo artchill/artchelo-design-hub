@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% block title %}Sales Overview{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">Sales Overview</h1>
+    <div class="flex gap-2">
+        <a href="{{ url_for('sales_lead_new') }}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
+            + New Lead
+        </a>
+        <a href="{{ url_for('sales_invoice_new') }}"
+           class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-medium text-sm">
+            + New Invoice
+        </a>
+    </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-slate-500 uppercase tracking-wide">Pipeline Value</p>
+        <p class="text-2xl font-bold text-blue-600 mt-1">${{ '{:,.2f}'.format(pipeline_value) }}</p>
+        <p class="text-xs text-slate-400 mt-1">Open leads (new/contacted/quoted)</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-slate-500 uppercase tracking-wide">Revenue This Month</p>
+        <p class="text-2xl font-bold text-green-600 mt-1">${{ '{:,.2f}'.format(revenue_this_month) }}</p>
+        <p class="text-xs text-slate-400 mt-1">Paid invoices</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-slate-500 uppercase tracking-wide">Outstanding</p>
+        <p class="text-2xl font-bold text-amber-600 mt-1">${{ '{:,.2f}'.format(outstanding) }}</p>
+        <p class="text-xs text-slate-400 mt-1">Sent + overdue invoices</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-slate-500 uppercase tracking-wide">Leads Won (Month)</p>
+        <p class="text-2xl font-bold text-purple-600 mt-1">{{ leads_won_month }}</p>
+        <p class="text-xs text-slate-400 mt-1">Closed as won this month</p>
+    </div>
+</div>
+
+<!-- Navigation Tabs -->
+<div class="bg-white rounded-lg shadow p-4 mb-6">
+    <div class="flex gap-3">
+        <a href="{{ url_for('sales_leads') }}"
+           class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm font-medium">
+            View All Leads →
+        </a>
+        <a href="{{ url_for('sales_invoices') }}"
+           class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm font-medium">
+            View All Invoices →
+        </a>
+        <a href="{{ url_for('sales_clients') }}"
+           class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm font-medium">
+            Manage Clients →
+        </a>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Recent Leads -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold">Recent Leads</h2>
+            <a href="{{ url_for('sales_leads') }}" class="text-blue-600 hover:underline text-sm">View all</a>
+        </div>
+        {% if recent_leads %}
+        <table class="min-w-full text-sm">
+            <thead class="bg-slate-100 text-slate-700">
+                <tr>
+                    <th class="px-3 py-2 text-left">Prospect</th>
+                    <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-right">Est. Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lead in recent_leads %}
+                <tr class="border-t">
+                    <td class="px-3 py-2">{{ lead.prospect_name }}</td>
+                    <td class="px-3 py-2">
+                        {% include '_lead_status_badge.html' %}
+                    </td>
+                    <td class="px-3 py-2 text-right">
+                        {% if lead.estimated_value %}${{ '{:,.0f}'.format(lead.estimated_value) }}{% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-sm text-slate-500">No leads yet.</p>
+        {% endif %}
+    </div>
+
+    <!-- Recent Invoices -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold">Recent Invoices</h2>
+            <a href="{{ url_for('sales_invoices') }}" class="text-blue-600 hover:underline text-sm">View all</a>
+        </div>
+        {% if recent_invoices %}
+        <table class="min-w-full text-sm">
+            <thead class="bg-slate-100 text-slate-700">
+                <tr>
+                    <th class="px-3 py-2 text-left">Invoice #</th>
+                    <th class="px-3 py-2 text-left">Client</th>
+                    <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-right">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inv in recent_invoices %}
+                <tr class="border-t">
+                    <td class="px-3 py-2 font-mono text-xs">{{ inv.invoice_number }}</td>
+                    <td class="px-3 py-2">{{ inv.client.name if inv.client else '—' }}</td>
+                    <td class="px-3 py-2">
+                        {% include '_invoice_status_badge.html' %}
+                    </td>
+                    <td class="px-3 py-2 text-right">${{ '{:,.2f}'.format(inv.amount) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-sm text-slate-500">No invoices yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

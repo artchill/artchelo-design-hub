@@ -1,8 +1,14 @@
 {% extends 'base.html' %}
-{% block title %}Login - Attendance Tracker{% endblock %}
+{% block title %}Sign In - Artchelo Design{% endblock %}
 {% block content %}
 <div class="max-w-md mx-auto mt-16 bg-white p-8 rounded-lg shadow">
-    <h1 class="text-2xl font-bold mb-6 text-slate-800">Sign In</h1>
+    <div class="flex items-center gap-3 mb-6">
+        <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-lg">A</div>
+        <div>
+            <h1 class="text-xl font-bold text-slate-800">Artchelo Design</h1>
+            <p class="text-xs text-slate-500">Business Hub — Sign In</p>
+        </div>
+    </div>
     <form method="POST" class="space-y-4">
         <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
@@ -16,11 +22,11 @@
         </div>
         <button type="submit"
                 class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-medium">
-            Login
+            Sign In
         </button>
     </form>
     <div class="mt-6 text-xs text-slate-500 border-t pt-4">
-        <p class="font-semibold mb-1">Seeded credentials:</p>
+        <p class="font-semibold mb-1">Demo credentials:</p>
         <p>Admin: <code>admin</code> / <code>admin123</code></p>
         <p>Employee: <code>jdoe</code> / <code>employee123</code></p>
     </div>

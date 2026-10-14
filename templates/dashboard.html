@@ -1,0 +1,344 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard - Artchelo Design{% endblock %}
+{% block content %}
+
+<!-- Header -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Dashboard</h1>
+        <p class="text-sm text-slate-500">Overview for {{ current_month_name }}</p>
+    </div>
+    <div class="flex gap-2">
+        <a href="{{ url_for('sales_lead_new') }}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
+            + Lead
+        </a>
+        <a href="{{ url_for('sales_invoice_new') }}"
+           class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-medium text-sm">
+            + Invoice
+        </a>
+    </div>
+</div>
+
+<!-- KPI Row 1 -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+    <!-- Revenue This Month -->
+    <div class="bg-white rounded-lg shadow p-5">
+        <div class="flex items-start justify-between">
+            <div>
+                <p class="text-xs text-slate-500 uppercase tracking-wide">Revenue (Month)</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1">${{ '{:,.0f}'.format(revenue_this_month) }}</p>
+            </div>
+            <div class="w-10 h-10 bg-green-100 text-green-600 rounded-lg flex items-center justify-center">💰</div>
+        </div>
+        {% if revenue_last_month > 0 %}
+            {% set delta = ((revenue_this_month - revenue_last_month) / revenue_last_month * 100) %}
+            <p class="text-xs mt-2 {% if delta >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                {% if delta >= 0 %}+{% endif %}{{ '%.1f'|format(delta) }}% vs last month
+            </p>
+        {% else %}
+            <p class="text-xs text-slate-400 mt-2">No data last month</p>
+        {% endif %}
+    </div>
+
+    <!-- Pipeline Value -->
+    <div class="bg-white rounded-lg shadow p-5">
+        <div class="flex items-start justify-between">
+            <div>
+                <p class="text-xs text-slate-500 uppercase tracking-wide">Pipeline Value</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1">${{ '{:,.0f}'.format(pipeline_value) }}</p>
+            </div>
+            <div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center">🎯</div>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">{{ open_leads }} open leads</p>
+    </div>
+
+    <!-- Outstanding -->
+    <div class="bg-white rounded-lg shadow p-5">
+        <div class="flex items-start justify-between">
+            <div>
+                <p class="text-xs text-slate-500 uppercase tracking-wide">Outstanding</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1">${{ '{:,.0f}'.format(outstanding) }}</p>
+            </div>
+            <div class="w-10 h-10 bg-amber-100 text-amber-600 rounded-lg flex items-center justify-center">⏳</div>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">Sent + overdue</p>
+    </div>
+
+    <!-- Clients -->
+    <div class="bg-white rounded-lg shadow p-5">
+        <div class="flex items-start justify-between">
+            <div>
+                <p class="text-xs text-slate-500 uppercase tracking-wide">Active Clients</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1">{{ active_clients }}</p>
+            </div>
+            <div class="w-10 h-10 bg-purple-100 text-purple-600 rounded-lg flex items-center justify-center">🏢</div>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">{{ leads_won_month }} won this month</p>
+    </div>
+</div>
+
+<!-- Charts Row 1: Revenue Trend + Sales Funnel -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+    <!-- Chart: Revenue Trend -->
+    <div class="bg-white rounded-lg shadow p-5 lg:col-span-2">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Revenue Trend — Last 6 Months</h2>
+        <div style="height: 260px;"><canvas id="chart-revenue"></canvas></div>
+    </div>
+
+    <!-- Chart: Sales Funnel -->
+    <div class="bg-white rounded-lg shadow p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Sales Funnel</h2>
+        <div style="height: 260px;"><canvas id="chart-funnel"></canvas></div>
+    </div>
+</div>
+
+<!-- Charts Row 2: Invoice Status + Leads Source + Top Clients -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+    <div class="bg-white rounded-lg shadow p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Invoice Status</h2>
+        <div style="height: 240px;"><canvas id="chart-invoices"></canvas></div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Leads by Source</h2>
+        <div style="height: 240px;"><canvas id="chart-sources"></canvas></div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Top Clients by Revenue</h2>
+        <div style="height: 240px;"><canvas id="chart-top-clients"></canvas></div>
+    </div>
+</div>
+
+<!-- Website Projects Placeholder -->
+<div class="bg-gradient-to-r from-slate-800 to-slate-700 text-white rounded-lg shadow p-6 mb-4 flex items-center justify-between">
+    <div>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Website Projects</h3>
+        <p class="text-xl font-bold mt-1">Coming in Phase 2</p>
+        <p class="text-sm text-slate-300 mt-1">Project tracker + developer workload + domain renewals + TAT analytics</p>
+    </div>
+    <div class="text-5xl opacity-30">🌐</div>
+</div>
+
+<!-- Activity Section -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- Recent Leads -->
+    <div class="bg-white rounded-lg shadow p-5">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-slate-700">Recent Leads</h2>
+            <a href="{{ url_for('sales_leads') }}" class="text-xs text-blue-600 hover:underline">View all</a>
+        </div>
+        {% if recent_leads %}
+        <ul class="space-y-2">
+            {% for lead in recent_leads %}
+            <li class="flex items-center justify-between text-sm border-b border-slate-100 pb-2 last:border-0">
+                <div>
+                    <div class="font-medium text-slate-800">{{ lead.prospect_name }}</div>
+                    <div class="text-xs text-slate-500">{{ lead.service_interest or '—' }}</div>
+                </div>
+                <div class="text-right">
+                    {% if lead.estimated_value %}
+                        <div class="text-sm font-medium">${{ '{:,.0f}'.format(lead.estimated_value) }}</div>
+                    {% endif %}
+                    <span class="text-xs text-slate-500">{{ lead.status|capitalize }}</span>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-xs text-slate-400">No leads yet.</p>
+        {% endif %}
+    </div>
+
+    <!-- Recent Invoices -->
+    <div class="bg-white rounded-lg shadow p-5">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-slate-700">Recent Invoices</h2>
+            <a href="{{ url_for('sales_invoices') }}" class="text-xs text-blue-600 hover:underline">View all</a>
+        </div>
+        {% if recent_invoices %}
+        <ul class="space-y-2">
+            {% for inv in recent_invoices %}
+            <li class="flex items-center justify-between text-sm border-b border-slate-100 pb-2 last:border-0">
+                <div>
+                    <div class="font-mono text-xs text-slate-500">{{ inv.invoice_number }}</div>
+                    <div class="font-medium text-slate-800 text-sm">{{ inv.client.name if inv.client else '—' }}</div>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm font-medium">${{ '{:,.0f}'.format(inv.amount) }}</div>
+                    <span class="text-xs text-slate-500">{{ inv.status|capitalize }}</span>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-xs text-slate-400">No invoices yet.</p>
+        {% endif %}
+    </div>
+
+    <!-- Upcoming Follow-ups -->
+    <div class="bg-white rounded-lg shadow p-5">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-slate-700">Follow-ups (7 Days)</h2>
+        </div>
+        {% if upcoming_followups %}
+        <ul class="space-y-2">
+            {% for lead in upcoming_followups %}
+            <li class="flex items-center justify-between text-sm border-b border-slate-100 pb-2 last:border-0">
+                <div>
+                    <div class="font-medium text-slate-800">{{ lead.prospect_name }}</div>
+                    <div class="text-xs text-slate-500">{{ lead.status|capitalize }}</div>
+                </div>
+                <div class="text-xs text-amber-600 font-medium">
+                    {{ lead.next_followup_date.strftime('%b %-d') }}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-xs text-slate-400">No follow-ups scheduled.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Chart.js from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// Shared defaults
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+Chart.defaults.font.size = 11;
+Chart.defaults.color = '#64748b';
+
+// --- Chart 1: Revenue Trend (Line) ---
+new Chart(document.getElementById('chart-revenue'), {
+    type: 'line',
+    data: {
+        labels: {{ revenue_trend_labels|tojson }},
+        datasets: [{
+            label: 'Revenue',
+            data: {{ revenue_trend_data|tojson }},
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+            tension: 0.35,
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: '#2563eb',
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: { label: (c) => '$' + c.parsed.y.toLocaleString() }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: { callback: (v) => '$' + v.toLocaleString() }
+            }
+        }
+    }
+});
+
+// --- Chart 2: Sales Funnel (Horizontal bar) ---
+const funnel = {{ funnel_data|tojson }};
+new Chart(document.getElementById('chart-funnel'), {
+    type: 'bar',
+    data: {
+        labels: ['New', 'Contacted', 'Quoted', 'Won', 'Lost'],
+        datasets: [{
+            data: [funnel.new, funnel.contacted, funnel.quoted, funnel.won, funnel.lost],
+            backgroundColor: ['#3b82f6', '#eab308', '#a855f7', '#22c55e', '#94a3b8'],
+            borderWidth: 0,
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { beginAtZero: true, ticks: { precision: 0 } }
+        }
+    }
+});
+
+// --- Chart 3: Invoice Status (Doughnut) ---
+const invStatus = {{ invoice_status|tojson }};
+new Chart(document.getElementById('chart-invoices'), {
+    type: 'doughnut',
+    data: {
+        labels: ['Draft', 'Sent', 'Paid', 'Overdue', 'Void'],
+        datasets: [{
+            data: [invStatus.draft, invStatus.sent, invStatus.paid, invStatus.overdue, invStatus.void],
+            backgroundColor: ['#cbd5e1', '#3b82f6', '#22c55e', '#ef4444', '#94a3b8'],
+            borderWidth: 2,
+            borderColor: '#fff',
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8 } }
+        }
+    }
+});
+
+// --- Chart 4: Leads by Source (Pie) ---
+const sources = {{ sources_data|tojson }};
+new Chart(document.getElementById('chart-sources'), {
+    type: 'pie',
+    data: {
+        labels: Object.keys(sources).map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+        datasets: [{
+            data: Object.values(sources),
+            backgroundColor: ['#2563eb', '#a855f7', '#ec4899', '#f59e0b', '#10b981', '#64748b'],
+            borderWidth: 2,
+            borderColor: '#fff',
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8 } }
+        }
+    }
+});
+
+// --- Chart 5: Top Clients (Horizontal bar) ---
+new Chart(document.getElementById('chart-top-clients'), {
+    type: 'bar',
+    data: {
+        labels: {{ top_clients_labels|tojson }},
+        datasets: [{
+            data: {{ top_clients_data|tojson }},
+            backgroundColor: '#2563eb',
+            borderWidth: 0,
+            borderRadius: 4,
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: { label: (c) => '$' + c.parsed.x.toLocaleString() }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                ticks: { callback: (v) => '$' + (v/1000) + 'k' }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}
