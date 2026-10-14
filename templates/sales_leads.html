@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}Leads - Sales{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Sales Leads</h1>
+        <p class="text-sm text-slate-500">
+            <a href="{{ url_for('sales_overview') }}" class="hover:underline">← Back to Sales</a>
+        </p>
+    </div>
+    <a href="{{ url_for('sales_lead_new') }}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
+        + New Lead
+    </a>
+</div>
+
+<!-- Filter Tabs -->
+<div class="bg-white rounded-lg shadow p-3 mb-4 flex flex-wrap gap-2">
+    <a href="{{ url_for('sales_leads') }}"
+       class="px-3 py-1 rounded text-sm {% if not status_filter %}bg-slate-800 text-white{% else %}bg-slate-100 text-slate-700 hover:bg-slate-200{% endif %}">
+        All
+    </a>
+    {% for s in ['new','contacted','quoted','won','lost'] %}
+    <a href="{{ url_for('sales_leads', status=s) }}"
+       class="px-3 py-1 rounded text-sm {% if status_filter == s %}bg-slate-800 text-white{% else %}bg-slate-100 text-slate-700 hover:bg-slate-200{% endif %}">
+        {{ s|capitalize }}
+    </a>
+    {% endfor %}
+</div>
+
+<div class="bg-white rounded-lg shadow p-6">
+    {% if leads %}
+    <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+            <thead class="bg-slate-100 text-slate-700">
+                <tr>
+                    <th class="px-3 py-2 text-left">Prospect</th>
+                    <th class="px-3 py-2 text-left">Email</th>
+                    <th class="px-3 py-2 text-left">Source</th>
+                    <th class="px-3 py-2 text-left">Service</th>
+                    <th class="px-3 py-2 text-right">Est. Value</th>
+                    <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-left">Follow-up</th>
+                    <th class="px-3 py-2 text-left">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lead in leads %}
+                <tr class="border-t">
+                    <td class="px-3 py-2 font-medium">{{ lead.prospect_name }}</td>
+                    <td class="px-3 py-2 text-xs">{{ lead.prospect_email or '—' }}</td>
+                    <td class="px-3 py-2 text-xs">{{ lead.source or '—' }}</td>
+                    <td class="px-3 py-2 text-xs">{{ lead.service_interest or '—' }}</td>
+                    <td class="px-3 py-2 text-right">
+                        {% if lead.estimated_value %}${{ '{:,.0f}'.format(lead.estimated_value) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2">
+                        {% include '_lead_status_badge.html' %}
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                        {% if lead.next_followup_date %}{{ lead.next_followup_date.strftime('%b %-d') }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                        <a href="{{ url_for('sales_lead_edit', lead_id=lead.id) }}"
+                           class="text-blue-600 hover:underline">Edit</a>
+                        <form method="POST" action="{{ url_for('sales_lead_delete', lead_id=lead.id) }}"
+                              class="inline"
+                              onsubmit="return confirm('Delete this lead?');">
+                            <button type="submit" class="text-red-600 hover:underline ml-2">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-sm text-slate-500">No leads found.</p>
+    {% endif %}
+</div>
+{% endblock %}

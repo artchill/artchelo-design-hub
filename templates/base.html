@@ -3,41 +3,160 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}AFSI Attendance{% endblock %}</title>
+    <title>{% block title %}Artchelo Design{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 1rem;
+            border-radius: 0.5rem;
+            color: #cbd5e1;
+            font-size: 0.875rem;
+            transition: all 0.15s;
+        }
+        .sidebar-link:hover {
+            background: rgba(255,255,255,0.08);
+            color: white;
+        }
+        .sidebar-link.active {
+            background: #2563eb;
+            color: white;
+            font-weight: 500;
+        }
+        .sidebar-section {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #64748b;
+            padding: 0 1rem;
+            margin: 1.25rem 0 0.5rem;
+        }
+    </style>
 </head>
-<body class="bg-slate-50 min-h-screen">
-    {% if current_user.is_authenticated %}
-    <nav class="bg-slate-800 text-white px-6 py-4 flex justify-between items-center">
-        <div class="font-semibold text-lg">AFSI Attendance Tracker</div>
-        <div class="flex items-center gap-4">
-            {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('admin_dashboard') }}" class="hover:underline">Tracker</a>
-                <a href="{{ url_for('admin_employees') }}" class="hover:underline">Manage Users</a>
-            {% endif %}
-            <span class="text-sm text-slate-300">
-                {{ current_user.fname }} {{ current_user.lname }} ({{ current_user.role }})
-            </span>
-            <a href="{{ url_for('logout') }}"
-               class="bg-slate-600 hover:bg-slate-500 px-3 py-1 rounded text-sm">Logout</a>
+<body class="bg-slate-100 min-h-screen">
+
+{% if current_user.is_authenticated %}
+<div class="flex min-h-screen">
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+        <!-- Brand -->
+        <div class="px-5 py-5 border-b border-slate-800">
+            <div class="flex items-center gap-2">
+                <div class="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center font-bold">A</div>
+                <div>
+                    <div class="font-semibold text-sm leading-tight">Artchelo Design</div>
+                    <div class="text-xs text-slate-400">Business Hub</div>
+                </div>
+            </div>
         </div>
-    </nav>
-    {% endif %}
 
-    <main class="max-w-6xl mx-auto p-6">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, msg in messages %}
-                    <div class="mb-4 p-3 rounded
-                        {% if category == 'error' %}bg-red-100 text-red-800 border border-red-300
-                        {% else %}bg-green-100 text-green-800 border border-green-300{% endif %}">
-                        {{ msg }}
-                    </div>
-                {% endfor %}
+        <!-- Nav -->
+        <nav class="flex-1 py-3 px-3 overflow-y-auto">
+            {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('dashboard') }}"
+                   class="sidebar-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                    <span>📊</span> Dashboard
+                </a>
+
+                <div class="sidebar-section">Operations</div>
+                <a href="{{ url_for('admin_dashboard') }}"
+                   class="sidebar-link {% if request.endpoint and 'admin_employee_tracker' in request.endpoint %}active{% endif %}">
+                    <span>🕒</span> Attendance
+                </a>
+                <a href="{{ url_for('admin_employees') }}"
+                   class="sidebar-link {% if request.endpoint and 'admin_employee' in request.endpoint and 'tracker' not in request.endpoint %}active{% endif %}">
+                    <span>👥</span> Team
+                </a>
+
+                <div class="sidebar-section">Business</div>
+                <a href="{{ url_for('sales_overview') }}"
+                   class="sidebar-link {% if request.endpoint == 'sales_overview' %}active{% endif %}">
+                    <span>💼</span> Sales Overview
+                </a>
+                <a href="{{ url_for('sales_leads') }}"
+                   class="sidebar-link {% if request.endpoint and 'sales_lead' in request.endpoint %}active{% endif %}">
+                    <span>🎯</span> Leads
+                </a>
+                <a href="{{ url_for('sales_invoices') }}"
+                   class="sidebar-link {% if request.endpoint and 'sales_invoice' in request.endpoint %}active{% endif %}">
+                    <span>🧾</span> Invoices
+                </a>
+                <a href="{{ url_for('sales_clients') }}"
+                   class="sidebar-link {% if request.endpoint and 'sales_client' in request.endpoint %}active{% endif %}">
+                    <span>🏢</span> Clients
+                </a>
+
+                <div class="sidebar-section">Coming Soon</div>
+                <div class="sidebar-link opacity-50 cursor-not-allowed">
+                    <span>🌐</span> Website Projects
+                </div>
+            {% else %}
+                <a href="{{ url_for('employee_dashboard') }}"
+                   class="sidebar-link {% if request.endpoint == 'employee_dashboard' %}active{% endif %}">
+                    <span>🕒</span> My Attendance
+                </a>
             {% endif %}
-        {% endwith %}
+        </nav>
 
-        {% block content %}{% endblock %}
+        <!-- User Footer -->
+        <div class="border-t border-slate-800 p-3">
+            <div class="flex items-center gap-3 px-2 py-2">
+                <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold">
+                    {{ current_user.fname[0] }}{{ current_user.lname[0] }}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium truncate">{{ current_user.fname }} {{ current_user.lname }}</div>
+                    <div class="text-xs text-slate-400 truncate">{{ current_user.role|capitalize }}</div>
+                </div>
+            </div>
+            <a href="{{ url_for('logout') }}"
+               class="block mt-2 text-center bg-slate-800 hover:bg-slate-700 text-sm py-2 rounded">
+                Logout
+            </a>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 overflow-x-auto">
+        <div class="max-w-7xl mx-auto p-6">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, msg in messages %}
+                        <div class="mb-4 p-3 rounded
+                            {% if category == 'error' %}bg-red-100 text-red-800 border border-red-300
+                            {% else %}bg-green-100 text-green-800 border border-green-300{% endif %}">
+                            {{ msg }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </div>
     </main>
+
+</div>
+{% else %}
+<!-- Not logged in - no sidebar -->
+<main class="max-w-6xl mx-auto p-6">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, msg in messages %}
+                <div class="mb-4 p-3 rounded
+                    {% if category == 'error' %}bg-red-100 text-red-800 border border-red-300
+                    {% else %}bg-green-100 text-green-800 border border-green-300{% endif %}">
+                    {{ msg }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% block content_logged_out %}{% block content_main %}{% endblock %}{% endblock %}
+</main>
+{% endif %}
+
 </body>
 </html>

@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% block title %}{% if is_new %}New{% else %}Edit{% endif %} Lead{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">
+        {% if is_new %}New Lead{% else %}Edit Lead{% endif %}
+    </h1>
+    <a href="{{ url_for('sales_leads') }}" class="text-sm text-slate-600 hover:underline">← Back</a>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6 max-w-2xl">
+    <form method="POST" class="space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    Prospect Name <span class="text-red-600">*</span>
+                </label>
+                <input type="text" name="prospect_name" required
+                       value="{{ lead.prospect_name if lead else '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                <input type="email" name="prospect_email"
+                       value="{{ lead.prospect_email if lead else '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                <input type="text" name="prospect_phone"
+                       value="{{ lead.prospect_phone if lead else '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Source</label>
+                <select name="source"
+                        class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                    <option value="">— Select —</option>
+                    {% for s in ['referral','web','social','email','other'] %}
+                    <option value="{{ s }}" {% if lead and lead.source == s %}selected{% endif %}>{{ s|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Service Interest</label>
+                <input type="text" name="service_interest"
+                       value="{{ lead.service_interest if lead else '' }}"
+                       placeholder="e.g. Website - Advanced"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Estimated Value ($)</label>
+                <input type="number" name="estimated_value" step="0.01" min="0"
+                       value="{{ lead.estimated_value if lead and lead.estimated_value else '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                <select name="status"
+                        class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                    {% for s in ['new','contacted','quoted','won','lost'] %}
+                    <option value="{{ s }}" {% if lead and lead.status == s %}selected{% elif not lead and s == 'new' %}selected{% endif %}>{{ s|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Next Follow-up</label>
+                <input type="date" name="next_followup_date"
+                       value="{{ lead.next_followup_date.strftime('%Y-%m-%d') if lead and lead.next_followup_date else '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+            <textarea name="notes" rows="4"
+                      class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">{{ lead.notes if lead else '' }}</textarea>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium">
+                {% if is_new %}Create Lead{% else %}Save Changes{% endif %}
+            </button>
+            <a href="{{ url_for('sales_leads') }}"
+               class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded font-medium">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

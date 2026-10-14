@@ -45,12 +45,11 @@ class Attendance(db.Model):
 
 
 class LeaveDay(db.Model):
-    """Records VL (Vacation Leave) or SL (Sick Leave) for a given user+date."""
     __tablename__ = 'leave_days'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     date = db.Column(db.Date, nullable=False)
-    leave_type = db.Column(db.String(10), nullable=False)  # 'VL' or 'SL'
+    leave_type = db.Column(db.String(10), nullable=False)
     note = db.Column(db.Text, nullable=True)
     marked_at = db.Column(db.DateTime, default=datetime.utcnow)
     marked_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
@@ -60,3 +59,57 @@ class LeaveDay(db.Model):
     __table_args__ = (
         db.UniqueConstraint('user_id', 'date', name='unique_user_date_leave'),
     )
+
+
+# ========== NEW: Sales & Clients ==========
+
+class Client(db.Model):
+    """A customer — individual author or company."""
+    __tablename__ = 'clients'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    client_type = db.Column(db.String(20), default='author')  # author / company / other
+    email = db.Column(db.String(200), nullable=True)
+    phone = db.Column(db.String(50), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    leads = db.relationship('SalesLead', backref='client', lazy=True)
+    invoices = db.relationship('SalesInvoice', backref='client', lazy=True)
+
+
+class SalesLead(db.Model):
+    """A sales opportunity — potential client who hasn't bought yet."""
+    __tablename__ = 'sales_leads'
+    id = db.Column(db.Integer, primary_key=True)
+    prospect_name = db.Column(db.String(200), nullable=False)
+    prospect_email = db.Column(db.String(200), nullable=True)
+    prospect_phone = db.Column(db.String(50), nullable=True)
+    source = db.Column(db.String(50), nullable=True)  # referral / web / social / other
+    service_interest = db.Column(db.String(100), nullable=True)
+    estimated_value = db.Column(db.Float, nullable=True)
+    status = db.Column(db.String(20), default='new')  # new/contacted/quoted/won/lost
+    next_followup_date = db.Column(db.Date, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    closed_at = db.Column(db.DateTime, nullable=True)
+
+    # If a lead was converted to a client
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
+
+
+class SalesInvoice(db.Model):
+    """A billable invoice to a client."""
+    __tablename__ = 'sales_invoices'
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_number = db.Column(db.String(50), unique=True, nullable=False)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    issue_date = db.Column(db.Date, nullable=False)
+    due_date = db.Column(db.Date, nullable=True)
+    paid_date = db.Column(db.Date, nullable=True)
+    payment_method = db.Column(db.String(50), nullable=True)
+    status = db.Column(db.String(20), default='draft')  # draft/sent/paid/overdue/void
+    description = db.Column(db.Text, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
