@@ -62,7 +62,10 @@
                            class="text-blue-600 hover:underline">Edit</a>
                         <form method="POST" action="{{ url_for('sales_invoice_delete', invoice_id=inv.id) }}"
                               class="inline"
-                              onsubmit="return confirm('Delete this invoice?');">
+                              data-confirm="Delete invoice {{ inv.invoice_number }}? This cannot be undone."
+                              data-confirm-title="Delete Invoice"
+                              data-confirm-icon="warning"
+                              data-confirm-button="Yes, delete">
                             <button type="submit" class="text-red-600 hover:underline ml-2">Delete</button>
                         </form>
                     </td>

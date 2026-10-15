@@ -1,0 +1,197 @@
+{% extends 'base.html' %}
+{% block title %}Edit Employee - Admin{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">Edit Employee Profile</h1>
+    <a href="{{ url_for('admin_employees') }}" class="text-sm text-slate-600 hover:underline">← Back</a>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6 max-w-3xl">
+    <form method="POST" class="space-y-5"
+          data-confirm="Save changes to this employee profile?"
+          data-confirm-title="Confirm Save"
+          data-confirm-button="Save Changes">
+
+        <!-- READ-ONLY INFO -->
+        <div class="bg-slate-50 border border-slate-200 rounded p-4 grid grid-cols-2 gap-4 text-sm">
+            <div>
+                <p class="text-xs text-slate-500 uppercase">Employee ID</p>
+                <p class="font-mono text-slate-700 mt-1">#{{ emp.id }}</p>
+            </div>
+            <div>
+                <p class="text-xs text-slate-500 uppercase">Date Created</p>
+                <p class="text-slate-700 mt-1">{{ emp.created_at.strftime('%B %-d, %Y') }}</p>
+            </div>
+            <div>
+                <p class="text-xs text-slate-500 uppercase">Age</p>
+                <p class="text-slate-700 mt-1">
+                    {% if emp.age is not none %}{{ emp.age }} years{% else %}—{% endif %}
+                    <span class="text-xs text-slate-400">(auto-calculated)</span>
+                </p>
+            </div>
+            <div>
+                <p class="text-xs text-slate-500 uppercase">Current Status</p>
+                <p class="mt-1">
+                    {% set badge = {
+                        'active': 'bg-green-100 text-green-800',
+                        'on_leave': 'bg-amber-100 text-amber-800',
+                        'resigned': 'bg-slate-200 text-slate-700',
+                        'terminated': 'bg-red-100 text-red-800',
+                    }.get(emp.employment_status, 'bg-slate-100 text-slate-600') %}
+                    <span class="{{ badge }} text-xs font-medium px-2 py-1 rounded">
+                        {{ emp.employment_status|replace('_',' ')|capitalize }}
+                    </span>
+                </p>
+            </div>
+        </div>
+
+        <!-- PERSONAL INFO -->
+        <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide pt-2">Personal Info</h2>
+        <div class="grid grid-cols-12 gap-4">
+            <div class="col-span-5">
+                <label class="block text-sm font-medium text-slate-700 mb-1">First Name</label>
+                <input type="text" name="fname" required value="{{ emp.fname }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div class="col-span-2">
+                <label class="block text-sm font-medium text-slate-700 mb-1">M.I.</label>
+                <input type="text" name="mname" maxlength="2" value="{{ emp.mname or '' }}"
+                       placeholder="L"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none text-center uppercase">
+            </div>
+            <div class="col-span-5">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Last Name</label>
+                <input type="text" name="lname" required value="{{ emp.lname }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Birthdate</label>
+                <input type="date" name="birthdate" id="birthdate-input"
+                       value="{{ emp.birthdate.strftime('%Y-%m-%d') if emp.birthdate else '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <p class="text-xs text-slate-500 mt-1">Age: <span id="live-age">{% if emp.age is not none %}{{ emp.age }} years{% else %}—{% endif %}</span></p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Date Hired</label>
+                <input type="date" name="date_hired"
+                       value="{{ emp.date_hired.strftime('%Y-%m-%d') if emp.date_hired else '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <!-- JOB INFO -->
+        <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide pt-2">Job Info</h2>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                <input type="text" name="username" required value="{{ emp.username }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Role</label>
+                <select name="role"
+                        class="w-full border border-slate-300 rounded px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    {% for r in ['employee','admin'] %}
+                    <option value="{{ r }}" {% if emp.role == r %}selected{% endif %}>{{ r|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Job Position</label>
+                <input type="text" name="job_position" required
+                       value="{{ emp.job_position or '' }}"
+                       placeholder="e.g. Web Developer"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Employee Type</label>
+                <select name="employee_type"
+                        class="w-full border border-slate-300 rounded px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <option value="">— Select —</option>
+                    {% for t in ['full-time','part-time','outsourced'] %}
+                    <option value="{{ t }}" {% if emp.employee_type == t %}selected{% endif %}>{{ t|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Monthly Salary (₱)</label>
+            <input type="number" name="monthly_salary" step="0.01" min="0" required
+                   value="{{ emp.monthly_salary or '' }}"
+                   class="w-full md:w-1/2 border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <!-- EMPLOYMENT STATUS -->
+        <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide pt-2">Employment Status</h2>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                <select name="employment_status" id="status-select"
+                        class="w-full border border-slate-300 rounded px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    {% for s in ['active','on_leave','resigned','terminated'] %}
+                    <option value="{{ s }}" {% if emp.employment_status == s %}selected{% endif %}>{{ s|replace('_',' ')|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div id="resign-date-group" style="display: none;">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Resignation / Termination Date</label>
+                <input type="date" name="resignation_date" id="resign-date-input"
+                       value="{{ emp.resignation_date.strftime('%Y-%m-%d') if emp.resignation_date else '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <!-- OPTIONAL PASSWORD RESET -->
+        <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide pt-2">Reset Password (Optional)</h2>
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">New Password</label>
+            <input type="password" name="new_password" minlength="6"
+                   placeholder="Leave blank to keep current password"
+                   class="w-full md:w-1/2 border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <div class="flex gap-3 pt-4 border-t">
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium">
+                Save Changes
+            </button>
+            <a href="{{ url_for('admin_employees') }}"
+               class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded font-medium">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<script>
+    // Show/hide resignation date based on status
+    const statusSelect = document.getElementById('status-select');
+    const resignGroup = document.getElementById('resign-date-group');
+    function updateResignVisibility() {
+        const v = statusSelect.value;
+        resignGroup.style.display = (v === 'resigned' || v === 'terminated') ? 'block' : 'none';
+    }
+    statusSelect.addEventListener('change', updateResignVisibility);
+    updateResignVisibility();
+
+    // Live age calculation
+    const birthInput = document.getElementById('birthdate-input');
+    const ageDisplay = document.getElementById('live-age');
+    birthInput.addEventListener('change', function() {
+        if (!this.value) { ageDisplay.textContent = '—'; return; }
+        const b = new Date(this.value);
+        const t = new Date();
+        let age = t.getFullYear() - b.getFullYear();
+        const m = t.getMonth() - b.getMonth();
+        if (m < 0 || (m === 0 && t.getDate() < b.getDate())) age--;
+        ageDisplay.textContent = age + ' years';
+    });
+</script>
+{% endblock %}

@@ -2,69 +2,102 @@
 {% block title %}Add Employee - Admin{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-slate-800">Add New User</h1>
+    <h1 class="text-2xl font-bold text-slate-800">Add New Employee</h1>
     <a href="{{ url_for('admin_employees') }}"
-       class="text-sm text-slate-600 hover:text-slate-800">← Back to Employees</a>
+       class="text-sm text-slate-600 hover:text-slate-800">← Back to Team</a>
 </div>
 
-<div class="bg-white rounded-lg shadow p-6 max-w-xl">
+<div class="bg-white rounded-lg shadow p-6 max-w-2xl">
     <form method="POST" class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-            <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">
-                    First Name <span class="text-red-600">*</span>
-                </label>
-                <input type="text" name="fname" required
-                       value="{{ form_data.fname or '' }}"
+        <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide">Personal Info</h2>
+        <div class="grid grid-cols-12 gap-4">
+            <div class="col-span-5">
+                <label class="block text-sm font-medium text-slate-700 mb-1">First Name <span class="text-red-600">*</span></label>
+                <input type="text" name="fname" required value="{{ form_data.fname or '' }}"
                        class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             </div>
-            <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">
-                    Last Name <span class="text-red-600">*</span>
-                </label>
-                <input type="text" name="lname" required
-                       value="{{ form_data.lname or '' }}"
+            <div class="col-span-2">
+                <label class="block text-sm font-medium text-slate-700 mb-1">M.I.</label>
+                <input type="text" name="mname" maxlength="2" value="{{ form_data.mname or '' }}"
+                       placeholder="L"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none text-center uppercase">
+            </div>
+            <div class="col-span-5">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Last Name <span class="text-red-600">*</span></label>
+                <input type="text" name="lname" required value="{{ form_data.lname or '' }}"
                        class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             </div>
         </div>
 
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Birthdate <span class="text-red-600">*</span></label>
+                <input type="date" name="birthdate" required value="{{ form_data.birthdate or '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Date Hired <span class="text-red-600">*</span></label>
+                <input type="date" name="date_hired" required value="{{ form_data.date_hired or '' }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide pt-2">Account Info</h2>
         <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">
-                Username <span class="text-red-600">*</span>
-            </label>
-            <input type="text" name="username" required
-                   value="{{ form_data.username or '' }}"
+            <label class="block text-sm font-medium text-slate-700 mb-1">Username <span class="text-red-600">*</span></label>
+            <input type="text" name="username" required value="{{ form_data.username or '' }}"
                    placeholder="e.g. jdoe"
                    class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">
-                Role <span class="text-red-600">*</span>
-            </label>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Role <span class="text-red-600">*</span></label>
             <select name="role" required
                     class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
-                <option value="">-- Select role --</option>
+                <option value="">— Select role —</option>
                 <option value="employee" {% if form_data.role == 'employee' %}selected{% endif %}>Employee</option>
                 <option value="admin" {% if form_data.role == 'admin' %}selected{% endif %}>Admin</option>
             </select>
         </div>
 
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">
-                Password <span class="text-red-600">*</span>
-            </label>
-            <input type="password" name="password" required minlength="6"
-                   placeholder="At least 6 characters"
-                   class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Password <span class="text-red-600">*</span></label>
+                <input type="password" name="password" required minlength="6" placeholder="At least 6 chars"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Confirm Password <span class="text-red-600">*</span></label>
+                <input type="password" name="confirm_password" required minlength="6"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide pt-2">Job Info</h2>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Job Position <span class="text-red-600">*</span></label>
+                <input type="text" name="job_position" required value="{{ form_data.job_position or '' }}"
+                       placeholder="e.g. Web Developer"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Employee Type <span class="text-red-600">*</span></label>
+                <select name="employee_type" required
+                        class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                    <option value="">— Select —</option>
+                    <option value="full-time" {% if form_data.employee_type == 'full-time' %}selected{% endif %}>Full-time</option>
+                    <option value="part-time" {% if form_data.employee_type == 'part-time' %}selected{% endif %}>Part-time</option>
+                    <option value="outsourced" {% if form_data.employee_type == 'outsourced' %}selected{% endif %}>Outsourced</option>
+                </select>
+            </div>
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">
-                Confirm Password <span class="text-red-600">*</span>
-            </label>
-            <input type="password" name="confirm_password" required minlength="6"
-                   class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Monthly Salary (₱) <span class="text-red-600">*</span></label>
+            <input type="number" name="monthly_salary" step="0.01" min="0" required
+                   value="{{ form_data.monthly_salary or '' }}" placeholder="e.g. 25000"
+                   class="w-full md:w-1/2 border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
         </div>
 
         <div class="flex gap-3 pt-2">

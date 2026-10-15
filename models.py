@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
-from datetime import datetime
+from datetime import datetime, date
 
 db = SQLAlchemy()
 
@@ -11,9 +11,19 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     fname = db.Column(db.String(80), nullable=False)
+    mname = db.Column(db.String(5), nullable=True)  # middle initial (e.g. "L" or "L.")
     lname = db.Column(db.String(80), nullable=False)
     role = db.Column(db.String(20), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Profile fields
+    job_position = db.Column(db.String(100), nullable=True)
+    birthdate = db.Column(db.Date, nullable=True)
+    date_hired = db.Column(db.Date, nullable=True)
+    monthly_salary = db.Column(db.Float, nullable=True)
+    employee_type = db.Column(db.String(20), nullable=True)
+    employment_status = db.Column(db.String(20), default='active')
+    resignation_date = db.Column(db.Date, nullable=True)
 
     attendances = db.relationship(
         'Attendance', foreign_keys='Attendance.user_id',
@@ -23,6 +33,32 @@ class User(UserMixin, db.Model):
         'LeaveDay', foreign_keys='LeaveDay.user_id',
         backref='user', lazy=True,
     )
+
+    @property
+    def age(self):
+        if not self.birthdate:
+            return None
+        today = date.today()
+        return today.year - self.birthdate.year - (
+            (today.month, today.day) < (self.birthdate.month, self.birthdate.day)
+        )
+
+    @property
+    def is_active_employee(self):
+        return self.employment_status == 'active'
+
+    @property
+    def full_name(self):
+        """Returns 'First M. Last' if middle initial exists, else 'First Last'."""
+        mi = (self.mname or '').strip().rstrip('.')
+        if mi:
+            return f"{self.fname} {mi}. {self.lname}"
+        return f"{self.fname} {self.lname}"
+
+    @property
+    def initials(self):
+        """Two-letter initials for avatar badges."""
+        return (self.fname[0] + self.lname[0]).upper()
 
 
 class Attendance(db.Model):

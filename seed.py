@@ -26,15 +26,33 @@ def seed():
         chelo = User(
             username='cheluarbuis',
             password_hash=generate_password_hash('admin@chelo1992', method='pbkdf2:sha256'),
-            fname='Chilli', lname='Arbuis', role='admin',
+            fname='Chilli', mname='L', lname='Arbuis', role='admin',
+            job_position='Founder & Senior Web Developer',
+            birthdate=date(1992, 5, 20),
+            date_hired=date(2020, 1, 1),
+            monthly_salary=60000.00,
+            employee_type='full-time',
+            employment_status='active',
         )
         employees = [
             User(username='jdoe',
                  password_hash=generate_password_hash('employee123', method='pbkdf2:sha256'),
-                 fname='John', lname='Doe', role='employee'),
+                 fname='John', mname='A', lname='Doe', role='employee',
+                 job_position='Web Developer',
+                 birthdate=date(1995, 3, 12),
+                 date_hired=date(2024, 6, 15),
+                 monthly_salary=28000.00,
+                 employee_type='full-time',
+                 employment_status='active'),
             User(username='asmith',
                  password_hash=generate_password_hash('employee123', method='pbkdf2:sha256'),
-                 fname='Alice', lname='Smith', role='employee'),
+                 fname='Alice', mname='M', lname='Smith', role='employee',
+                 job_position='Virtual Assistant',
+                 birthdate=date(1998, 9, 8),
+                 date_hired=date(2025, 2, 1),
+                 monthly_salary=18000.00,
+                 employee_type='part-time',
+                 employment_status='active'),
         ]
         db.session.add_all([chelo] + employees)
         db.session.commit()

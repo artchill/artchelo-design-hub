@@ -1,13 +1,59 @@
 {% extends 'base.html' %}
-{% block title %}Admin - Employees{% endblock %}
+{% block title %}Team - Admin{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold text-slate-800">Registered Employees</h1>
-    <a href="{{ url_for('admin_new_employee') }}"
-       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
-        + Add Employee
-    </a>
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Team</h1>
+        <p class="text-sm text-slate-500">
+            {% if search %}
+                Showing results for "<span class="font-medium text-slate-700">{{ search }}</span>"
+                — {{ employees|length }} match{{ 'es' if employees|length != 1 else '' }}
+            {% elif show_all %}
+                Showing all employees (including past)
+            {% else %}
+                Showing active employees only
+            {% endif %}
+        </p>
+    </div>
+    <div class="flex gap-2">
+        {% if show_all %}
+            <a href="{{ url_for('admin_employees', q=search) }}"
+               class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm">Active only</a>
+        {% else %}
+            <a href="{{ url_for('admin_employees', show_all=1, q=search) }}"
+               class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm">Show all</a>
+        {% endif %}
+        <a href="{{ url_for('admin_new_employee') }}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
+            + Add Employee
+        </a>
+    </div>
 </div>
+
+<!-- Search Bar -->
+<div class="bg-white rounded-lg shadow p-4 mb-4">
+    <form method="GET" action="{{ url_for('admin_employees') }}" class="flex gap-2 items-center">
+        {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        <div class="relative flex-1">
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+            <input type="text" name="q" value="{{ search or '' }}"
+                   placeholder="Search by first name or last name..."
+                   class="w-full border border-slate-300 rounded pl-10 pr-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                   autofocus>
+        </div>
+        <button type="submit"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium text-sm">
+            Search
+        </button>
+        {% if search %}
+        <a href="{{ url_for('admin_employees', show_all=1 if show_all else None) }}"
+           class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm">
+            Clear
+        </a>
+        {% endif %}
+    </form>
+</div>
+
 <div class="bg-white rounded-lg shadow p-6">
     {% if employees %}
     <div class="overflow-x-auto">
@@ -15,31 +61,61 @@
             <thead class="bg-slate-100 text-slate-700">
                 <tr>
                     <th class="px-3 py-2 text-left">ID</th>
-                    <th class="px-3 py-2 text-left">First Name</th>
-                    <th class="px-3 py-2 text-left">Last Name</th>
+                    <th class="px-3 py-2 text-left">Full Name</th>
                     <th class="px-3 py-2 text-left">Username</th>
-                    <th class="px-3 py-2 text-left">Role</th>
-                    <th class="px-3 py-2 text-left">Created</th>
+                    <th class="px-3 py-2 text-left">Job Position</th>
+                    <th class="px-3 py-2 text-left">Type</th>
+                    <th class="px-3 py-2 text-left">Date Hired</th>
+                    <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-left">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for e in employees %}
-                <tr class="border-t">
+                {% set row_muted = e.employment_status != 'active' %}
+                <tr class="border-t {% if row_muted %}bg-slate-50 text-slate-500{% endif %}">
                     <td class="px-3 py-2">{{ e.id }}</td>
-                    <td class="px-3 py-2">{{ e.fname }}</td>
-                    <td class="px-3 py-2">{{ e.lname }}</td>
-                    <td class="px-3 py-2">{{ e.username }}</td>
-                    <td class="px-3 py-2">
-                        <span class="bg-slate-200 text-slate-700 text-xs px-2 py-1 rounded">{{ e.role }}</span>
+                    <td class="px-3 py-2 font-medium">{{ e.full_name }}</td>
+                    <td class="px-3 py-2 text-xs">{{ e.username }}</td>
+                    <td class="px-3 py-2 text-xs">{{ e.job_position or '—' }}</td>
+                    <td class="px-3 py-2 text-xs">
+                        {% if e.employee_type %}
+                        <span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded">{{ e.employee_type|capitalize }}</span>
+                        {% else %}—{% endif %}
                     </td>
-                    <td class="px-3 py-2">{{ e.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td class="px-3 py-2 text-xs">
+                        {% if e.date_hired %}{{ e.date_hired.strftime('%b %-d, %Y') }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2">
+                        {% set badge = {
+                            'active': 'bg-green-100 text-green-800',
+                            'on_leave': 'bg-amber-100 text-amber-800',
+                            'resigned': 'bg-slate-200 text-slate-700',
+                            'terminated': 'bg-red-100 text-red-800',
+                        }.get(e.employment_status, 'bg-slate-100 text-slate-600') %}
+                        <span class="{{ badge }} text-xs font-medium px-2 py-1 rounded">
+                            {{ e.employment_status|replace('_',' ')|capitalize }}
+                        </span>
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                        <a href="{{ url_for('admin_edit_employee', user_id=e.id) }}"
+                           class="text-blue-600 hover:underline">Update</a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
     {% else %}
-    <p class="text-sm text-slate-500">No employees registered.</p>
+        {% if search %}
+        <div class="text-center py-8">
+            <p class="text-sm text-slate-500 mb-2">No employees match "<span class="font-medium">{{ search }}</span>"</p>
+            <a href="{{ url_for('admin_employees', show_all=1 if show_all else None) }}"
+               class="text-blue-600 hover:underline text-sm">Clear search</a>
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-500">No employees found.</p>
+        {% endif %}
     {% endif %}
 </div>
 {% endblock %}

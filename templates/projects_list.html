@@ -108,7 +108,10 @@
                         <a href="{{ url_for('project_edit', project_id=p.id) }}" class="text-blue-600 hover:underline">Edit</a>
                         <form method="POST" action="{{ url_for('project_delete', project_id=p.id) }}"
                               class="inline"
-                              onsubmit="return confirm('Delete this project?');">
+                              data-confirm="Delete project for {{ p.client.name }}? This cannot be undone."
+                              data-confirm-title="Delete Project"
+                              data-confirm-icon="warning"
+                              data-confirm-button="Yes, delete">
                             <button type="submit" class="text-red-600 hover:underline ml-2">Delete</button>
                         </form>
                     </td>

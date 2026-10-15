@@ -140,6 +140,11 @@ def login():
         password = request.form.get('password', '')
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
+            # Block non-active employees
+            if user.employment_status and user.employment_status != 'active':
+                status_label = user.employment_status.replace('_', ' ').title()
+                flash(f'Account not active (status: {status_label}). Please contact admin.', 'error')
+                return render_template('login.html')
             login_user(user)
             return redirect(url_for(
                 'dashboard' if user.role == 'admin'
@@ -330,8 +335,20 @@ def admin_employee_tracker(employee_id):
 @app.route('/admin/employees')
 @role_required('admin')
 def admin_employees():
-    employees = User.query.filter_by(role='employee').all()
-    return render_template('admin_employees.html', employees=employees)
+    show_all = request.args.get('show_all', '') == '1'
+    search = request.args.get('q', '').strip()
+    query = User.query.filter(User.role == 'employee')
+    if not show_all:
+        query = query.filter(User.employment_status == 'active')
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(
+            User.fname.ilike(like),
+            User.lname.ilike(like),
+        ))
+    employees = query.order_by(User.fname).all()
+    return render_template('admin_employees.html',
+                           employees=employees, show_all=show_all, search=search)
 
 
 @app.route('/admin/employees/new', methods=['GET', 'POST'])
@@ -342,35 +359,143 @@ def admin_new_employee():
         password = request.form.get('password', '')
         confirm_password = request.form.get('confirm_password', '')
         fname = request.form.get('fname', '').strip()
+        mname = request.form.get('mname', '').strip().rstrip('.').upper()[:1] or None
         lname = request.form.get('lname', '').strip()
         role = request.form.get('role', '').strip()
+        job_position = request.form.get('job_position', '').strip()
+        birthdate_str = request.form.get('birthdate', '').strip()
+        date_hired_str = request.form.get('date_hired', '').strip()
+        monthly_salary_str = request.form.get('monthly_salary', '').strip()
+        employee_type = request.form.get('employee_type', '').strip()
+
         errors = []
-        if not username or not password or not fname or not lname or not role:
+        if not all([username, password, fname, lname, role, job_position,
+                    birthdate_str, date_hired_str, monthly_salary_str, employee_type]):
             errors.append('All fields are required.')
         if role not in ('employee', 'admin'):
             errors.append('Invalid role selected.')
+        if employee_type and employee_type not in ('full-time', 'part-time', 'outsourced'):
+            errors.append('Invalid employee type.')
         if len(password) < 6:
             errors.append('Password must be at least 6 characters.')
         if password != confirm_password:
             errors.append('Passwords do not match.')
         if User.query.filter_by(username=username).first():
             errors.append(f'Username "{username}" is already taken.')
+
+        birthdate = None
+        date_hired = None
+        monthly_salary = None
+        try:
+            birthdate = datetime.strptime(birthdate_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            if birthdate_str:
+                errors.append('Invalid birthdate.')
+        try:
+            date_hired = datetime.strptime(date_hired_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            if date_hired_str:
+                errors.append('Invalid date hired.')
+        try:
+            monthly_salary = float(monthly_salary_str) if monthly_salary_str else None
+            if monthly_salary is not None and monthly_salary < 0:
+                errors.append('Salary must be a positive number.')
+        except ValueError:
+            errors.append('Invalid salary.')
+
         if errors:
             for e in errors:
                 flash(e, 'error')
             return render_template('admin_new_employee.html',
-                form_data={'username': username, 'fname': fname,
-                           'lname': lname, 'role': role})
+                form_data={'username': username, 'fname': fname, 'mname': mname or '',
+                           'lname': lname, 'role': role, 'job_position': job_position,
+                           'birthdate': birthdate_str, 'date_hired': date_hired_str,
+                           'monthly_salary': monthly_salary_str,
+                           'employee_type': employee_type})
+
         new_user = User(
             username=username,
             password_hash=generate_password_hash(password, method='pbkdf2:sha256'),
-            fname=fname, lname=lname, role=role,
+            fname=fname, mname=mname, lname=lname, role=role,
+            job_position=job_position,
+            birthdate=birthdate, date_hired=date_hired,
+            monthly_salary=monthly_salary,
+            employee_type=employee_type,
+            employment_status='active',
         )
         db.session.add(new_user)
         db.session.commit()
         flash(f'User "{username}" created successfully.', 'success')
         return redirect(url_for('admin_employees'))
     return render_template('admin_new_employee.html', form_data={})
+
+
+@app.route('/admin/employees/<int:user_id>/edit', methods=['GET', 'POST'])
+@role_required('admin')
+def admin_edit_employee(user_id):
+    emp = User.query.get_or_404(user_id)
+
+    if request.method == 'POST':
+        emp.fname = request.form.get('fname', '').strip() or emp.fname
+        emp.mname = (request.form.get('mname', '').strip().rstrip('.').upper()[:1] or None)
+        emp.lname = request.form.get('lname', '').strip() or emp.lname
+        emp.username = request.form.get('username', '').strip() or emp.username
+        emp.role = request.form.get('role', emp.role)
+        emp.job_position = request.form.get('job_position', '').strip() or emp.job_position
+        emp.employee_type = request.form.get('employee_type', emp.employee_type)
+
+        birthdate_str = request.form.get('birthdate', '').strip()
+        if birthdate_str:
+            try:
+                emp.birthdate = datetime.strptime(birthdate_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+
+        date_hired_str = request.form.get('date_hired', '').strip()
+        if date_hired_str:
+            try:
+                emp.date_hired = datetime.strptime(date_hired_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+
+        salary_str = request.form.get('monthly_salary', '').strip()
+        if salary_str:
+            try:
+                emp.monthly_salary = float(salary_str)
+            except ValueError:
+                pass
+
+        # Handle status change
+        new_status = request.form.get('employment_status', emp.employment_status)
+        if new_status != emp.employment_status:
+            if new_status in ('resigned', 'terminated'):
+                resign_str = request.form.get('resignation_date', '').strip()
+                if not resign_str:
+                    flash('Resignation date is required for Resigned or Terminated status.', 'error')
+                    return render_template('admin_edit_employee.html', emp=emp)
+                try:
+                    emp.resignation_date = datetime.strptime(resign_str, '%Y-%m-%d').date()
+                except ValueError:
+                    flash('Invalid resignation date.', 'error')
+                    return render_template('admin_edit_employee.html', emp=emp)
+            elif new_status == 'active':
+                emp.resignation_date = None
+            emp.employment_status = new_status
+
+        # Optional password change
+        new_password = request.form.get('new_password', '').strip()
+        if new_password:
+            if len(new_password) < 6:
+                flash('Password must be at least 6 characters.', 'error')
+                return render_template('admin_edit_employee.html', emp=emp)
+            emp.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+            flash('Password updated.', 'success')
+
+        db.session.commit()
+        flash(f'Profile for {emp.full_name} updated.', 'success')
+        return redirect(url_for('admin_employees'))
+
+    return render_template('admin_edit_employee.html', emp=emp)
 
 
 @app.route('/admin/attendance/<int:record_id>/edit', methods=['GET', 'POST'])
@@ -771,7 +896,6 @@ def dashboard():
         Project.delivered_date >= month_start
     ).count()
 
-    # Avg TAT (last 90 days)
     recent_delivered = Project.query.filter(
         Project.delivered_date >= today - timedelta(days=90),
         Project.tat_days != None,
@@ -779,7 +903,6 @@ def dashboard():
     avg_tat = (sum(p.tat_days for p in recent_delivered) / len(recent_delivered)
                if recent_delivered else 0)
 
-    # Chart: revenue trend
     revenue_trend_labels = []
     revenue_trend_data = []
     for i in range(5, -1, -1):
@@ -822,13 +945,11 @@ def dashboard():
     top_clients_labels = [name for name, _ in top_clients_query]
     top_clients_data = [float(amt) for _, amt in top_clients_query]
 
-    # Projects by tier
     tier_query = db.session.query(
         Project.package_tier, func.count(Project.id)
     ).group_by(Project.package_tier).all()
     tier_data = {t or 'Unknown': c for t, c in tier_query}
 
-    # Workload per developer (ongoing projects)
     workload_query = db.session.query(
         User.fname, func.count(Project.id)
     ).join(Project, Project.assigned_developer_id == User.id).filter(

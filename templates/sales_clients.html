@@ -42,10 +42,12 @@
                     <td class="px-3 py-2 text-center">{{ c.invoices|length }}</td>
                     <td class="px-3 py-2 text-xs">
                         <a href="{{ url_for('sales_client_edit', client_id=c.id) }}"
-                           class="text-blue-600 hover:underline">Edit</a>
-                        <form method="POST" action="{{ url_for('sales_client_delete', client_id=c.id) }}"
+                           class="text-blue-600 hover:underline">Edit</a                        <form method="POST" action="{{ url_for('sales_client_delete', client_id=c.id) }}"
                               class="inline"
-                              onsubmit="return confirm('Delete this client? (Only works if no invoices)');">
+                              data-confirm="Delete client {{ c.name }}? (Only works if they have no invoices.)"
+                              data-confirm-title="Delete Client"
+                              data-confirm-icon="warning"
+                              data-confirm-button="Yes, delete">
                             <button type="submit" class="text-red-600 hover:underline ml-2">Delete</button>
                         </form>
                     </td>
