@@ -17,12 +17,15 @@
            class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-medium text-sm">
             + Invoice
         </a>
+        <a href="{{ url_for('project_new') }}"
+           class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-medium text-sm">
+            + Project
+        </a>
     </div>
 </div>
 
-<!-- KPI Row 1 -->
+<!-- KPI Row 1: Sales -->
 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-    <!-- Revenue This Month -->
     <div class="bg-white rounded-lg shadow p-5">
         <div class="flex items-start justify-between">
             <div>
@@ -41,7 +44,6 @@
         {% endif %}
     </div>
 
-    <!-- Pipeline Value -->
     <div class="bg-white rounded-lg shadow p-5">
         <div class="flex items-start justify-between">
             <div>
@@ -53,7 +55,6 @@
         <p class="text-xs text-slate-400 mt-2">{{ open_leads }} open leads</p>
     </div>
 
-    <!-- Outstanding -->
     <div class="bg-white rounded-lg shadow p-5">
         <div class="flex items-start justify-between">
             <div>
@@ -65,7 +66,6 @@
         <p class="text-xs text-slate-400 mt-2">Sent + overdue</p>
     </div>
 
-    <!-- Clients -->
     <div class="bg-white rounded-lg shadow p-5">
         <div class="flex items-start justify-between">
             <div>
@@ -78,22 +78,43 @@
     </div>
 </div>
 
-<!-- Charts Row 1: Revenue Trend + Sales Funnel -->
+<!-- KPI Row 2: Projects -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+    <div class="bg-white rounded-lg shadow p-5">
+        <p class="text-xs text-slate-500 uppercase tracking-wide">Projects Total</p>
+        <p class="text-2xl font-bold text-slate-800 mt-1">{{ projects_total }}</p>
+        <p class="text-xs text-slate-400 mt-2">{{ projects_completed }} completed</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-5">
+        <p class="text-xs text-slate-500 uppercase tracking-wide">Ongoing Now</p>
+        <p class="text-2xl font-bold text-yellow-600 mt-1">{{ projects_ongoing }}</p>
+        <p class="text-xs text-slate-400 mt-2">Active builds</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-5">
+        <p class="text-xs text-slate-500 uppercase tracking-wide">Delivered (Month)</p>
+        <p class="text-2xl font-bold text-green-600 mt-1">{{ projects_delivered_month }}</p>
+        <p class="text-xs text-slate-400 mt-2">This month</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-5">
+        <p class="text-xs text-slate-500 uppercase tracking-wide">Avg TAT</p>
+        <p class="text-2xl font-bold text-blue-600 mt-1">{{ '%.0f'|format(avg_tat) }}d</p>
+        <p class="text-xs text-slate-400 mt-2">Last 90 days</p>
+    </div>
+</div>
+
+<!-- Charts Row 1 -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-    <!-- Chart: Revenue Trend -->
     <div class="bg-white rounded-lg shadow p-5 lg:col-span-2">
         <h2 class="text-sm font-semibold text-slate-700 mb-3">Revenue Trend — Last 6 Months</h2>
         <div style="height: 260px;"><canvas id="chart-revenue"></canvas></div>
     </div>
-
-    <!-- Chart: Sales Funnel -->
     <div class="bg-white rounded-lg shadow p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-3">Sales Funnel</h2>
         <div style="height: 260px;"><canvas id="chart-funnel"></canvas></div>
     </div>
 </div>
 
-<!-- Charts Row 2: Invoice Status + Leads Source + Top Clients -->
+<!-- Charts Row 2 -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
     <div class="bg-white rounded-lg shadow p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-3">Invoice Status</h2>
@@ -109,19 +130,20 @@
     </div>
 </div>
 
-<!-- Website Projects Placeholder -->
-<div class="bg-gradient-to-r from-slate-800 to-slate-700 text-white rounded-lg shadow p-6 mb-4 flex items-center justify-between">
-    <div>
-        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Website Projects</h3>
-        <p class="text-xl font-bold mt-1">Coming in Phase 2</p>
-        <p class="text-sm text-slate-300 mt-1">Project tracker + developer workload + domain renewals + TAT analytics</p>
+<!-- Charts Row 3: Projects -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+    <div class="bg-white rounded-lg shadow p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Projects by Tier</h2>
+        <div style="height: 240px;"><canvas id="chart-tier"></canvas></div>
     </div>
-    <div class="text-5xl opacity-30">🌐</div>
+    <div class="bg-white rounded-lg shadow p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Developer Workload (Ongoing)</h2>
+        <div style="height: 240px;"><canvas id="chart-workload"></canvas></div>
+    </div>
 </div>
 
 <!-- Activity Section -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-    <!-- Recent Leads -->
     <div class="bg-white rounded-lg shadow p-5">
         <div class="flex items-center justify-between mb-3">
             <h2 class="text-sm font-semibold text-slate-700">Recent Leads</h2>
@@ -149,7 +171,6 @@
         {% endif %}
     </div>
 
-    <!-- Recent Invoices -->
     <div class="bg-white rounded-lg shadow p-5">
         <div class="flex items-center justify-between mb-3">
             <h2 class="text-sm font-semibold text-slate-700">Recent Invoices</h2>
@@ -175,7 +196,6 @@
         {% endif %}
     </div>
 
-    <!-- Upcoming Follow-ups -->
     <div class="bg-white rounded-lg shadow p-5">
         <div class="flex items-center justify-between mb-3">
             <h2 class="text-sm font-semibold text-slate-700">Follow-ups (7 Days)</h2>
@@ -200,15 +220,14 @@
     </div>
 </div>
 
-<!-- Chart.js from CDN -->
+<!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-// Shared defaults
 Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 Chart.defaults.font.size = 11;
 Chart.defaults.color = '#64748b';
 
-// --- Chart 1: Revenue Trend (Line) ---
+// Chart 1: Revenue Trend
 new Chart(document.getElementById('chart-revenue'), {
     type: 'line',
     data: {
@@ -218,32 +237,21 @@ new Chart(document.getElementById('chart-revenue'), {
             data: {{ revenue_trend_data|tojson }},
             borderColor: '#2563eb',
             backgroundColor: 'rgba(37, 99, 235, 0.1)',
-            tension: 0.35,
-            fill: true,
-            borderWidth: 2,
-            pointRadius: 4,
-            pointBackgroundColor: '#2563eb',
+            tension: 0.35, fill: true, borderWidth: 2,
+            pointRadius: 4, pointBackgroundColor: '#2563eb',
         }]
     },
     options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         plugins: {
             legend: { display: false },
-            tooltip: {
-                callbacks: { label: (c) => '$' + c.parsed.y.toLocaleString() }
-            }
+            tooltip: { callbacks: { label: (c) => '$' + c.parsed.y.toLocaleString() } }
         },
-        scales: {
-            y: {
-                beginAtZero: true,
-                ticks: { callback: (v) => '$' + v.toLocaleString() }
-            }
-        }
+        scales: { y: { beginAtZero: true, ticks: { callback: (v) => '$' + v.toLocaleString() } } }
     }
 });
 
-// --- Chart 2: Sales Funnel (Horizontal bar) ---
+// Chart 2: Sales Funnel
 const funnel = {{ funnel_data|tojson }};
 new Chart(document.getElementById('chart-funnel'), {
     type: 'bar',
@@ -256,17 +264,13 @@ new Chart(document.getElementById('chart-funnel'), {
         }]
     },
     options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
-        scales: {
-            x: { beginAtZero: true, ticks: { precision: 0 } }
-        }
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
     }
 });
 
-// --- Chart 3: Invoice Status (Doughnut) ---
+// Chart 3: Invoice Status
 const invStatus = {{ invoice_status|tojson }};
 new Chart(document.getElementById('chart-invoices'), {
     type: 'doughnut',
@@ -275,20 +279,16 @@ new Chart(document.getElementById('chart-invoices'), {
         datasets: [{
             data: [invStatus.draft, invStatus.sent, invStatus.paid, invStatus.overdue, invStatus.void],
             backgroundColor: ['#cbd5e1', '#3b82f6', '#22c55e', '#ef4444', '#94a3b8'],
-            borderWidth: 2,
-            borderColor: '#fff',
+            borderWidth: 2, borderColor: '#fff',
         }]
     },
     options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8 } }
-        }
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8 } } }
     }
 });
 
-// --- Chart 4: Leads by Source (Pie) ---
+// Chart 4: Leads by Source
 const sources = {{ sources_data|tojson }};
 new Chart(document.getElementById('chart-sources'), {
     type: 'pie',
@@ -297,47 +297,67 @@ new Chart(document.getElementById('chart-sources'), {
         datasets: [{
             data: Object.values(sources),
             backgroundColor: ['#2563eb', '#a855f7', '#ec4899', '#f59e0b', '#10b981', '#64748b'],
-            borderWidth: 2,
-            borderColor: '#fff',
+            borderWidth: 2, borderColor: '#fff',
         }]
     },
     options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8 } }
-        }
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8 } } }
     }
 });
 
-// --- Chart 5: Top Clients (Horizontal bar) ---
+// Chart 5: Top Clients
 new Chart(document.getElementById('chart-top-clients'), {
     type: 'bar',
     data: {
         labels: {{ top_clients_labels|tojson }},
         datasets: [{
             data: {{ top_clients_data|tojson }},
-            backgroundColor: '#2563eb',
-            borderWidth: 0,
-            borderRadius: 4,
+            backgroundColor: '#2563eb', borderWidth: 0, borderRadius: 4,
         }]
     },
     options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
         plugins: {
             legend: { display: false },
-            tooltip: {
-                callbacks: { label: (c) => '$' + c.parsed.x.toLocaleString() }
-            }
+            tooltip: { callbacks: { label: (c) => '$' + c.parsed.x.toLocaleString() } }
         },
-        scales: {
-            x: {
-                beginAtZero: true,
-                ticks: { callback: (v) => '$' + (v/1000) + 'k' }
-            }
-        }
+        scales: { x: { beginAtZero: true, ticks: { callback: (v) => '$' + (v/1000) + 'k' } } }
+    }
+});
+
+// Chart 6: Projects by Tier
+const tierData = {{ tier_data|tojson }};
+new Chart(document.getElementById('chart-tier'), {
+    type: 'doughnut',
+    data: {
+        labels: Object.keys(tierData),
+        datasets: [{
+            data: Object.values(tierData),
+            backgroundColor: ['#f59e0b', '#3b82f6', '#8b5cf6', '#eab308', '#64748b', '#ec4899', '#10b981'],
+            borderWidth: 2, borderColor: '#fff',
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8 } } }
+    }
+});
+
+// Chart 7: Developer Workload
+new Chart(document.getElementById('chart-workload'), {
+    type: 'bar',
+    data: {
+        labels: {{ workload_labels|tojson }},
+        datasets: [{
+            data: {{ workload_data|tojson }},
+            backgroundColor: '#8b5cf6', borderWidth: 0, borderRadius: 4,
+        }]
+    },
+    options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
     }
 });
 </script>

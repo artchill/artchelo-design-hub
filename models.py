@@ -16,16 +16,12 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     attendances = db.relationship(
-        'Attendance',
-        foreign_keys='Attendance.user_id',
-        backref='user',
-        lazy=True,
+        'Attendance', foreign_keys='Attendance.user_id',
+        backref='user', lazy=True,
     )
     leave_days = db.relationship(
-        'LeaveDay',
-        foreign_keys='LeaveDay.user_id',
-        backref='user',
-        lazy=True,
+        'LeaveDay', foreign_keys='LeaveDay.user_id',
+        backref='user', lazy=True,
     )
 
 
@@ -61,14 +57,13 @@ class LeaveDay(db.Model):
     )
 
 
-# ========== NEW: Sales & Clients ==========
+# ========== Clients & Sales ==========
 
 class Client(db.Model):
-    """A customer — individual author or company."""
     __tablename__ = 'clients'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
-    client_type = db.Column(db.String(20), default='author')  # author / company / other
+    client_type = db.Column(db.String(20), default='author')
     email = db.Column(db.String(200), nullable=True)
     phone = db.Column(db.String(50), nullable=True)
     notes = db.Column(db.Text, nullable=True)
@@ -76,30 +71,27 @@ class Client(db.Model):
 
     leads = db.relationship('SalesLead', backref='client', lazy=True)
     invoices = db.relationship('SalesInvoice', backref='client', lazy=True)
+    projects = db.relationship('Project', backref='client', lazy=True)
 
 
 class SalesLead(db.Model):
-    """A sales opportunity — potential client who hasn't bought yet."""
     __tablename__ = 'sales_leads'
     id = db.Column(db.Integer, primary_key=True)
     prospect_name = db.Column(db.String(200), nullable=False)
     prospect_email = db.Column(db.String(200), nullable=True)
     prospect_phone = db.Column(db.String(50), nullable=True)
-    source = db.Column(db.String(50), nullable=True)  # referral / web / social / other
+    source = db.Column(db.String(50), nullable=True)
     service_interest = db.Column(db.String(100), nullable=True)
     estimated_value = db.Column(db.Float, nullable=True)
-    status = db.Column(db.String(20), default='new')  # new/contacted/quoted/won/lost
+    status = db.Column(db.String(20), default='new')
     next_followup_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     closed_at = db.Column(db.DateTime, nullable=True)
-
-    # If a lead was converted to a client
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
 
 
 class SalesInvoice(db.Model):
-    """A billable invoice to a client."""
     __tablename__ = 'sales_invoices'
     id = db.Column(db.Integer, primary_key=True)
     invoice_number = db.Column(db.String(50), unique=True, nullable=False)
@@ -109,7 +101,61 @@ class SalesInvoice(db.Model):
     due_date = db.Column(db.Date, nullable=True)
     paid_date = db.Column(db.Date, nullable=True)
     payment_method = db.Column(db.String(50), nullable=True)
-    status = db.Column(db.String(20), default='draft')  # draft/sent/paid/overdue/void
+    status = db.Column(db.String(20), default='draft')
     description = db.Column(db.Text, nullable=True)
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# ========== NEW: Website Projects ==========
+
+class Project(db.Model):
+    """A website build/takeover project for a client."""
+    __tablename__ = 'projects'
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False)
+    domain = db.Column(db.String(200), nullable=True)
+    service_type = db.Column(db.String(20), default='website')  # website/takeover
+    package_tier = db.Column(db.String(20), nullable=True)      # Bronze/Silver/Gold/Essential/Advanced/Elite
+    tier_rank = db.Column(db.Integer, nullable=True)            # 1=lowest, 3=highest
+    status = db.Column(db.String(20), default='lead')           # lead/ongoing/completed/needs_review
+    created_month = db.Column(db.Integer, nullable=True)        # 1-12
+    created_year = db.Column(db.Integer, nullable=True)
+    start_date = db.Column(db.Date, nullable=True)
+    delivered_date = db.Column(db.Date, nullable=True)
+    tat_days = db.Column(db.Integer, nullable=True)             # auto-computed
+    drive_url = db.Column(db.String(500), nullable=True)
+    form_url = db.Column(db.String(500), nullable=True)
+    assigned_developer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    assigned_developer = db.relationship('User', foreign_keys=[assigned_developer_id])
+    renewals = db.relationship('DomainRenewal', backref='project', lazy=True,
+                               cascade='all, delete-orphan')
+    status_history = db.relationship('ProjectStatusHistory', backref='project', lazy=True,
+                                     cascade='all, delete-orphan')
+
+
+class DomainRenewal(db.Model):
+    __tablename__ = 'domain_renewals'
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
+    term_years = db.Column(db.Integer, nullable=True)
+    expires_on = db.Column(db.Date, nullable=True)
+    renewal_raw = db.Column(db.String(200), nullable=True)
+    reminder_sent_at = db.Column(db.DateTime, nullable=True)
+
+
+class ProjectStatusHistory(db.Model):
+    __tablename__ = 'project_status_history'
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
+    from_status = db.Column(db.String(20), nullable=True)
+    to_status = db.Column(db.String(20), nullable=False)
+    changed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    changed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    note = db.Column(db.Text, nullable=True)
+
+    changed_by = db.relationship('User', foreign_keys=[changed_by_id])

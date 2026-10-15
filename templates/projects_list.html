@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Website Projects{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Website Projects</h1>
+        <p class="text-sm text-slate-500">{{ projects|length }} projects</p>
+    </div>
+    <a href="{{ url_for('project_new') }}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
+        + New Project
+    </a>
+</div>
+
+<!-- Filters -->
+<div class="bg-white rounded-lg shadow p-4 mb-4">
+    <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Search</label>
+            <input type="text" name="q" value="{{ search }}" placeholder="Client / domain..."
+                   class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Status</label>
+            <select name="status" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white">
+                <option value="">All</option>
+                {% for s in ['lead','ongoing','completed','needs_review'] %}
+                <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Tier</label>
+            <select name="tier" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white">
+                <option value="">All</option>
+                {% for t in ['Essential','Advanced','Elite','Bronze','Silver','Gold'] %}
+                <option value="{{ t }}" {% if tier_filter == t %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Developer</label>
+            <select name="dev" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white">
+                <option value="">All</option>
+                {% for d in all_devs %}
+                <option value="{{ d.id }}" {% if dev_filter == d.id|string %}selected{% endif %}>{{ d.fname }} {{ d.lname }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="flex gap-2">
+            <button type="submit" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-sm">Filter</button>
+            <a href="{{ url_for('projects_list') }}" class="flex-1 text-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded text-sm">Reset</a>
+        </div>
+    </form>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6">
+    {% if projects %}
+    <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+            <thead class="bg-slate-100 text-slate-700">
+                <tr>
+                    <th class="px-3 py-2 text-left">Client</th>
+                    <th class="px-3 py-2 text-left">Domain</th>
+                    <th class="px-3 py-2 text-left">Service</th>
+                    <th class="px-3 py-2 text-left">Tier</th>
+                    <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-left">Developer</th>
+                    <th class="px-3 py-2 text-left">Start</th>
+                    <th class="px-3 py-2 text-left">Delivered</th>
+                    <th class="px-3 py-2 text-right">TAT</th>
+                    <th class="px-3 py-2 text-left">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in projects %}
+                <tr class="border-t">
+                    <td class="px-3 py-2 font-medium">{{ p.client.name }}</td>
+                    <td class="px-3 py-2 text-xs font-mono">{{ p.domain or '—' }}</td>
+                    <td class="px-3 py-2 text-xs">{{ p.service_type|capitalize }}</td>
+                    <td class="px-3 py-2">
+                        {% if p.package_tier %}
+                        <span class="bg-slate-200 text-slate-700 text-xs px-2 py-1 rounded">{{ p.package_tier }}</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2">
+                        {% set badge = {
+                            'lead': 'bg-blue-100 text-blue-800',
+                            'ongoing': 'bg-yellow-100 text-yellow-800',
+                            'completed': 'bg-green-100 text-green-800',
+                            'needs_review': 'bg-red-100 text-red-800',
+                        }[p.status] %}
+                        <span class="{{ badge }} text-xs font-medium px-2 py-1 rounded">{{ p.status|replace('_',' ')|capitalize }}</span>
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                        {% if p.assigned_developer %}{{ p.assigned_developer.fname }} {{ p.assigned_developer.lname }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                        {% if p.start_date %}{{ p.start_date.strftime('%b %-d, %Y') }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                        {% if p.delivered_date %}{{ p.delivered_date.strftime('%b %-d, %Y') }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-right text-xs">
+                        {% if p.tat_days is not none %}{{ p.tat_days }}d{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                        <a href="{{ url_for('project_edit', project_id=p.id) }}" class="text-blue-600 hover:underline">Edit</a>
+                        <form method="POST" action="{{ url_for('project_delete', project_id=p.id) }}"
+                              class="inline"
+                              onsubmit="return confirm('Delete this project?');">
+                            <button type="submit" class="text-red-600 hover:underline ml-2">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-sm text-slate-500">No projects found. Try adjusting filters or <a href="{{ url_for('project_new') }}" class="text-blue-600 hover:underline">create one</a>.</p>
+    {% endif %}
+</div>
+{% endblock %}

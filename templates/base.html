@@ -89,10 +89,11 @@
                     <span>🏢</span> Clients
                 </a>
 
-                <div class="sidebar-section">Coming Soon</div>
-                <div class="sidebar-link opacity-50 cursor-not-allowed">
+                <div class="sidebar-section">Projects</div>
+                <a href="{{ url_for('projects_list') }}"
+                   class="sidebar-link {% if request.endpoint and 'project' in request.endpoint %}active{% endif %}">
                     <span>🌐</span> Website Projects
-                </div>
+                </a>
             {% else %}
                 <a href="{{ url_for('employee_dashboard') }}"
                    class="sidebar-link {% if request.endpoint == 'employee_dashboard' %}active{% endif %}">

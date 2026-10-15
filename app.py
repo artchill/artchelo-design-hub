@@ -10,6 +10,7 @@ from sqlalchemy import extract, func
 from models import (
     db, User, Attendance, LeaveDay,
     Client, SalesLead, SalesInvoice,
+    Project, DomainRenewal, ProjectStatusHistory,
 )
 
 app = Flask(__name__)
@@ -22,6 +23,15 @@ db.init_app(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+
+# ---------- Helpers ----------
+
+TIER_RANK = {
+    'Bronze': 1, 'Essential': 1,
+    'Silver': 2, 'Advanced': 2,
+    'Gold': 3, 'Elite': 3,
+}
 
 
 @login_manager.user_loader
@@ -44,7 +54,6 @@ def role_required(role):
 
 
 def generate_invoice_number():
-    """Auto-generate the next invoice number: INV-YYYY-###"""
     year = datetime.now().year
     prefix = f'INV-{year}-'
     last = (SalesInvoice.query
@@ -720,12 +729,10 @@ def sales_client_delete(client_id):
 @app.route('/dashboard')
 @role_required('admin')
 def dashboard():
-    """Artchelo Design main dashboard — admin landing page."""
     today = date.today()
     month_start = date(today.year, today.month, 1)
     last_month_start = (month_start - timedelta(days=1)).replace(day=1)
 
-    # ---- KPIs ----
     revenue_this_month = db.session.query(func.sum(SalesInvoice.amount)).filter(
         SalesInvoice.status == 'paid',
         SalesInvoice.paid_date >= month_start,
@@ -756,7 +763,23 @@ def dashboard():
         SalesLead.status.in_(('new', 'contacted', 'quoted'))
     ).count()
 
-    # ---- Chart 1: Revenue trend (last 6 months) ----
+    # Project KPIs
+    projects_total = Project.query.count()
+    projects_ongoing = Project.query.filter_by(status='ongoing').count()
+    projects_completed = Project.query.filter_by(status='completed').count()
+    projects_delivered_month = Project.query.filter(
+        Project.delivered_date >= month_start
+    ).count()
+
+    # Avg TAT (last 90 days)
+    recent_delivered = Project.query.filter(
+        Project.delivered_date >= today - timedelta(days=90),
+        Project.tat_days != None,
+    ).all()
+    avg_tat = (sum(p.tat_days for p in recent_delivered) / len(recent_delivered)
+               if recent_delivered else 0)
+
+    # Chart: revenue trend
     revenue_trend_labels = []
     revenue_trend_data = []
     for i in range(5, -1, -1):
@@ -770,7 +793,6 @@ def dashboard():
         revenue_trend_labels.append(m.strftime('%b %Y'))
         revenue_trend_data.append(float(rev))
 
-    # ---- Chart 2: Sales Funnel ----
     funnel_data = {
         'new': SalesLead.query.filter_by(status='new').count(),
         'contacted': SalesLead.query.filter_by(status='contacted').count(),
@@ -779,7 +801,6 @@ def dashboard():
         'lost': SalesLead.query.filter_by(status='lost').count(),
     }
 
-    # ---- Chart 3: Invoice Status Breakdown ----
     invoice_status = {
         'draft': SalesInvoice.query.filter_by(status='draft').count(),
         'sent': SalesInvoice.query.filter_by(status='sent').count(),
@@ -788,13 +809,11 @@ def dashboard():
         'void': SalesInvoice.query.filter_by(status='void').count(),
     }
 
-    # ---- Chart 4: Leads by Source ----
     sources_query = db.session.query(
         SalesLead.source, func.count(SalesLead.id)
     ).group_by(SalesLead.source).all()
     sources_data = {s or 'Unknown': c for s, c in sources_query}
 
-    # ---- Chart 5: Top Clients by Revenue ----
     top_clients_query = db.session.query(
         Client.name, func.sum(SalesInvoice.amount)
     ).join(SalesInvoice, SalesInvoice.client_id == Client.id).filter(
@@ -803,11 +822,25 @@ def dashboard():
     top_clients_labels = [name for name, _ in top_clients_query]
     top_clients_data = [float(amt) for _, amt in top_clients_query]
 
-    # ---- Recent activity ----
+    # Projects by tier
+    tier_query = db.session.query(
+        Project.package_tier, func.count(Project.id)
+    ).group_by(Project.package_tier).all()
+    tier_data = {t or 'Unknown': c for t, c in tier_query}
+
+    # Workload per developer (ongoing projects)
+    workload_query = db.session.query(
+        User.fname, func.count(Project.id)
+    ).join(Project, Project.assigned_developer_id == User.id).filter(
+        Project.status == 'ongoing'
+    ).group_by(User.fname).all()
+    workload_labels = [name for name, _ in workload_query]
+    workload_data = [count for _, count in workload_query]
+
     recent_leads = SalesLead.query.order_by(SalesLead.created_at.desc()).limit(5).all()
     recent_invoices = SalesInvoice.query.order_by(SalesInvoice.issue_date.desc()).limit(5).all()
+    recent_projects = Project.query.order_by(Project.created_at.desc()).limit(5).all()
 
-    # ---- Upcoming follow-ups ----
     upcoming_followups = SalesLead.query.filter(
         SalesLead.next_followup_date != None,
         SalesLead.next_followup_date >= today,
@@ -824,6 +857,11 @@ def dashboard():
         active_clients=active_clients,
         leads_won_month=leads_won_month,
         open_leads=open_leads,
+        projects_total=projects_total,
+        projects_ongoing=projects_ongoing,
+        projects_completed=projects_completed,
+        projects_delivered_month=projects_delivered_month,
+        avg_tat=avg_tat,
         revenue_trend_labels=revenue_trend_labels,
         revenue_trend_data=revenue_trend_data,
         funnel_data=funnel_data,
@@ -831,11 +869,187 @@ def dashboard():
         sources_data=sources_data,
         top_clients_labels=top_clients_labels,
         top_clients_data=top_clients_data,
+        tier_data=tier_data,
+        workload_labels=workload_labels,
+        workload_data=workload_data,
         recent_leads=recent_leads,
         recent_invoices=recent_invoices,
+        recent_projects=recent_projects,
         upcoming_followups=upcoming_followups,
         current_month_name=today.strftime('%B %Y'),
     )
+
+
+# ========== WEBSITE PROJECTS MODULE ==========
+
+@app.route('/projects')
+@role_required('admin')
+def projects_list():
+    status_filter = request.args.get('status', '')
+    tier_filter = request.args.get('tier', '')
+    dev_filter = request.args.get('dev', '')
+    search = request.args.get('q', '').strip()
+
+    query = Project.query.join(Client, Project.client_id == Client.id)
+
+    if status_filter:
+        query = query.filter(Project.status == status_filter)
+    if tier_filter:
+        query = query.filter(Project.package_tier == tier_filter)
+    if dev_filter:
+        query = query.filter(Project.assigned_developer_id == int(dev_filter))
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(
+            Client.name.ilike(like),
+            Project.domain.ilike(like),
+        ))
+
+    projects = query.order_by(Project.created_at.desc()).all()
+    all_devs = User.query.order_by(User.fname).all()
+
+    return render_template(
+        'projects_list.html',
+        projects=projects, all_devs=all_devs,
+        status_filter=status_filter, tier_filter=tier_filter,
+        dev_filter=dev_filter, search=search,
+    )
+
+
+@app.route('/projects/new', methods=['GET', 'POST'])
+@role_required('admin')
+def project_new():
+    clients = Client.query.order_by(Client.name).all()
+    devs = User.query.order_by(User.fname).all()
+    if request.method == 'POST':
+        client_id = int(request.form.get('client_id', 0) or 0)
+        if not client_id:
+            flash('Client is required.', 'error')
+            return render_template('project_form.html',
+                                   project=None, clients=clients, devs=devs, is_new=True)
+
+        tier = request.form.get('package_tier', '').strip() or None
+        project = Project(
+            client_id=client_id,
+            domain=request.form.get('domain', '').strip().lower() or None,
+            service_type=request.form.get('service_type', 'website'),
+            package_tier=tier,
+            tier_rank=TIER_RANK.get(tier),
+            status=request.form.get('status', 'lead'),
+            drive_url=request.form.get('drive_url', '').strip() or None,
+            form_url=request.form.get('form_url', '').strip() or None,
+            notes=request.form.get('notes', '').strip() or None,
+        )
+        dev_id = request.form.get('assigned_developer_id', '').strip()
+        if dev_id:
+            project.assigned_developer_id = int(dev_id)
+
+        start_str = request.form.get('start_date', '').strip()
+        if start_str:
+            try:
+                project.start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
+                project.created_month = project.start_date.month
+                project.created_year = project.start_date.year
+            except ValueError:
+                pass
+
+        delivered_str = request.form.get('delivered_date', '').strip()
+        if delivered_str:
+            try:
+                project.delivered_date = datetime.strptime(delivered_str, '%Y-%m-%d').date()
+                if project.start_date:
+                    project.tat_days = (project.delivered_date - project.start_date).days
+            except ValueError:
+                pass
+
+        db.session.add(project)
+        db.session.commit()
+
+        db.session.add(ProjectStatusHistory(
+            project_id=project.id, from_status=None,
+            to_status=project.status, changed_by_id=current_user.id,
+            note='Project created',
+        ))
+        db.session.commit()
+
+        flash('Project created.', 'success')
+        return redirect(url_for('projects_list'))
+    return render_template('project_form.html',
+                           project=None, clients=clients, devs=devs, is_new=True)
+
+
+@app.route('/projects/<int:project_id>/edit', methods=['GET', 'POST'])
+@role_required('admin')
+def project_edit(project_id):
+    project = Project.query.get_or_404(project_id)
+    clients = Client.query.order_by(Client.name).all()
+    devs = User.query.order_by(User.fname).all()
+
+    if request.method == 'POST':
+        old_status = project.status
+
+        project.client_id = int(request.form.get('client_id', project.client_id))
+        project.domain = request.form.get('domain', '').strip().lower() or None
+        project.service_type = request.form.get('service_type', project.service_type)
+
+        tier = request.form.get('package_tier', '').strip() or None
+        project.package_tier = tier
+        project.tier_rank = TIER_RANK.get(tier)
+
+        project.status = request.form.get('status', project.status)
+
+        dev_id = request.form.get('assigned_developer_id', '').strip()
+        project.assigned_developer_id = int(dev_id) if dev_id else None
+
+        project.drive_url = request.form.get('drive_url', '').strip() or None
+        project.form_url = request.form.get('form_url', '').strip() or None
+        project.notes = request.form.get('notes', '').strip() or None
+
+        start_str = request.form.get('start_date', '').strip()
+        if start_str:
+            try:
+                project.start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
+                project.created_month = project.start_date.month
+                project.created_year = project.start_date.year
+            except ValueError:
+                pass
+        else:
+            project.start_date = None
+
+        delivered_str = request.form.get('delivered_date', '').strip()
+        if delivered_str:
+            try:
+                project.delivered_date = datetime.strptime(delivered_str, '%Y-%m-%d').date()
+                if project.start_date:
+                    project.tat_days = (project.delivered_date - project.start_date).days
+            except ValueError:
+                pass
+        else:
+            project.delivered_date = None
+            project.tat_days = None
+
+        if old_status != project.status:
+            db.session.add(ProjectStatusHistory(
+                project_id=project.id, from_status=old_status,
+                to_status=project.status, changed_by_id=current_user.id,
+            ))
+
+        db.session.commit()
+        flash('Project updated.', 'success')
+        return redirect(url_for('projects_list'))
+
+    return render_template('project_form.html',
+                           project=project, clients=clients, devs=devs, is_new=False)
+
+
+@app.route('/projects/<int:project_id>/delete', methods=['POST'])
+@role_required('admin')
+def project_delete(project_id):
+    project = Project.query.get_or_404(project_id)
+    db.session.delete(project)
+    db.session.commit()
+    flash('Project deleted.', 'success')
+    return redirect(url_for('projects_list'))
 
 
 if __name__ == '__main__':
