@@ -85,7 +85,11 @@
                     <div class="text-xs text-slate-400 truncate">{{ current_user.role|capitalize }}</div>
                 </div>
             </div>
-            <a href="{{ url_for('logout') }}" class="block mt-2 text-center bg-slate-800 hover:bg-slate-700 text-sm py-2 rounded">
+            <a href="{{ url_for('change_password') }}"
+               class="block mt-2 text-center text-xs text-slate-300 hover:text-white py-1.5">
+                🔒 Change Password
+            </a>
+            <a href="{{ url_for('logout') }}" class="block mt-1 text-center bg-slate-800 hover:bg-slate-700 text-sm py-2 rounded">
                 Logout
             </a>
         </div>

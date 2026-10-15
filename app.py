@@ -140,7 +140,6 @@ def login():
         password = request.form.get('password', '')
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
-            # Block non-active employees
             if user.employment_status and user.employment_status != 'active':
                 status_label = user.employment_status.replace('_', ' ').title()
                 flash(f'Account not active (status: {status_label}). Please contact admin.', 'error')
@@ -159,6 +158,41 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('login'))
+
+
+@app.route('/account/change-password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    if request.method == 'POST':
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        errors = []
+        if not current_password or not new_password or not confirm_password:
+            errors.append('All fields are required.')
+        if not check_password_hash(current_user.password_hash, current_password):
+            errors.append('Current password is incorrect.')
+        if len(new_password) < 6:
+            errors.append('New password must be at least 6 characters.')
+        if new_password == current_password:
+            errors.append('New password must be different from current password.')
+        if new_password != confirm_password:
+            errors.append('New password and confirmation do not match.')
+
+        if errors:
+            for e in errors:
+                flash(e, 'error')
+            return render_template('change_password.html')
+
+        current_user.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+        db.session.commit()
+        flash('Password changed successfully.', 'success')
+        return redirect(url_for(
+            'dashboard' if current_user.role == 'admin' else 'employee_dashboard'
+        ))
+
+    return render_template('change_password.html')
 
 
 # ---------- Employee ----------
@@ -465,7 +499,6 @@ def admin_edit_employee(user_id):
             except ValueError:
                 pass
 
-        # Handle status change
         new_status = request.form.get('employment_status', emp.employment_status)
         if new_status != emp.employment_status:
             if new_status in ('resigned', 'terminated'):
@@ -482,7 +515,6 @@ def admin_edit_employee(user_id):
                 emp.resignation_date = None
             emp.employment_status = new_status
 
-        # Optional password change
         new_password = request.form.get('new_password', '').strip()
         if new_password:
             if len(new_password) < 6:
@@ -888,7 +920,6 @@ def dashboard():
         SalesLead.status.in_(('new', 'contacted', 'quoted'))
     ).count()
 
-    # Project KPIs
     projects_total = Project.query.count()
     projects_ongoing = Project.query.filter_by(status='ongoing').count()
     projects_completed = Project.query.filter_by(status='completed').count()
