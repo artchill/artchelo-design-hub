@@ -209,7 +209,7 @@
                     <div class="text-xs text-slate-500">{{ lead.status|capitalize }}</div>
                 </div>
                 <div class="text-xs text-amber-600 font-medium">
-                    {{ lead.next_followup_date.strftime('%b %-d') }}
+                    {{ lead.next_followup_date.strftime('%b %d').lstrip('0').replace(' 0', ' ') }}
                 </div>
             </li>
             {% endfor %}

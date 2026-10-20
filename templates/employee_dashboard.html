@@ -10,8 +10,8 @@
     {% if open_session %}
         <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
             <strong>Active session</strong> started at
-            {{ open_session.datetime_in.strftime('%-I:%M%p') }} on
-            {{ open_session.datetime_in.strftime('%B %-d, %Y') }}
+            {{ open_session.datetime_in.strftime('%I:%M%p').lstrip('0') }} on
+            {{ open_session.datetime_in.strftime('%B %d, %Y').replace(' 0', ' ') }}
             ({{ open_session.day }})
         </div>
         <form method="POST" action="{{ url_for('time_out') }}"

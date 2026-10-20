@@ -20,7 +20,7 @@
             </div>
             <div>
                 <p class="text-xs text-slate-500 uppercase">Date Created</p>
-                <p class="text-slate-700 mt-1">{{ emp.created_at.strftime('%B %-d, %Y') }}</p>
+                <p class="text-slate-700 mt-1">{{ emp.created_at.strftime('%B %d, %Y').replace(' 0', ' ') }}</p>
             </div>
             <div>
                 <p class="text-xs text-slate-500 uppercase">Age</p>

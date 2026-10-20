@@ -84,7 +84,7 @@
                         {% else %}—{% endif %}
                     </td>
                     <td class="px-3 py-2 text-xs">
-                        {% if e.date_hired %}{{ e.date_hired.strftime('%b %-d, %Y') }}{% else %}—{% endif %}
+                        {% if e.date_hired %}{{ e.date_hired.strftime('%b %d, %Y').replace(' 0', ' ') }}{% else %}—{% endif %}
                     </td>
                     <td class="px-3 py-2">
                         {% set badge = {

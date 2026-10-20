@@ -15,7 +15,7 @@
         {% if record.edited_at %}
         <p class="mt-2 text-amber-700">
             ⚠️ Last edited on
-            {{ record.edited_at.strftime('%B %-d, %Y at %-I:%M%p') }}
+            {{ record.edited_at.strftime('%B %d, %Y at %I:%M%p').replace(' 0', ' ') }}
             {% if record.edited_by %}
                 by {{ record.edited_by.fname }} {{ record.edited_by.lname }}
             {% endif %}

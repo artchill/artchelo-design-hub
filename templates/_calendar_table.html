@@ -21,7 +21,7 @@
         {% if day.status == 'sl' %}{% set row_class = 'bg-amber-50' %}{% endif %}
         {% if day.status == 'future' %}{% set row_class = 'bg-white text-slate-400' %}{% endif %}
         <tr class="border-t {{ row_class }}">
-            <td class="px-3 py-2">{{ day.date.strftime('%B %-d, %Y') }}</td>
+            <td class="px-3 py-2">{{ day.date.strftime('%B %d, %Y').replace(' 0', ' ') }}</td>
             <td class="px-3 py-2">{{ day.day_name }}</td>
             <td class="px-3 py-2">
                 {% if day.status == 'present' %}
@@ -40,12 +40,12 @@
             </td>
             <td class="px-3 py-2">
                 {% for a in day.attendances %}
-                    {{ a.datetime_in.strftime('%-I:%M%p') }}{% if not loop.last %}<br>{% endif %}
+                    {{ a.datetime_in.strftime('%I:%M%p').lstrip('0') }}{% if not loop.last %}<br>{% endif %}
                 {% else %}—{% endfor %}
             </td>
             <td class="px-3 py-2">
                 {% for a in day.attendances %}
-                    {% if a.datetime_out %}{{ a.datetime_out.strftime('%-I:%M%p') }}
+                    {% if a.datetime_out %}{{ a.datetime_out.strftime('%I:%M%p').lstrip('0') }}
                     {% else %}<span class="text-blue-600 text-xs">In progress</span>{% endif %}
                     {% if not loop.last %}<br>{% endif %}
                 {% else %}—{% endfor %}

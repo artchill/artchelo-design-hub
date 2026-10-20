@@ -46,12 +46,12 @@
                 <tr class="border-t">
                     <td class="px-3 py-2 font-mono text-xs">{{ inv.invoice_number }}</td>
                     <td class="px-3 py-2">{{ inv.client.name if inv.client else '—' }}</td>
-                    <td class="px-3 py-2 text-xs">{{ inv.issue_date.strftime('%b %-d, %Y') }}</td>
+                    <td class="px-3 py-2 text-xs">{{ inv.issue_date.strftime('%b %d, %Y').replace(' 0', ' ') }}</td>
                     <td class="px-3 py-2 text-xs">
-                        {% if inv.due_date %}{{ inv.due_date.strftime('%b %-d, %Y') }}{% else %}—{% endif %}
+                        {% if inv.due_date %}{{ inv.due_date.strftime('%b %d, %Y').replace(' 0', ' ') }}{% else %}—{% endif %}
                     </td>
                     <td class="px-3 py-2 text-xs">
-                        {% if inv.paid_date %}{{ inv.paid_date.strftime('%b %-d, %Y') }}{% else %}—{% endif %}
+                        {% if inv.paid_date %}{{ inv.paid_date.strftime('%b %d, %Y').replace(' 0', ' ') }}{% else %}—{% endif %}
                     </td>
                     <td class="px-3 py-2 text-right font-medium">${{ '{:,.2f}'.format(inv.amount) }}</td>
                     <td class="px-3 py-2">
