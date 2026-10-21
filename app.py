@@ -6,6 +6,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime, date, timedelta
 from calendar import monthrange, month_name
 from functools import wraps
+from pathlib import Path
+import io
+import re
+import time
+from PIL import Image, ImageOps
 from sqlalchemy import extract, func
 from models import (
     db, User, Attendance, LeaveDay,
@@ -32,6 +37,71 @@ TIER_RANK = {
     'Silver': 2, 'Advanced': 2,
     'Gold': 3, 'Elite': 3,
 }
+
+
+GENDERS = ('male', 'female', 'prefer_not_to_say')
+EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+AVATAR_DIR = Path(app.root_path) / 'static' / 'uploads' / 'avatars'
+AVATAR_MAX_BYTES = 2 * 1024 * 1024
+AVATAR_MIME_TYPES = ('image/jpeg', 'image/png', 'image/webp')
+AVATAR_EXTENSIONS = {'JPEG': 'jpg', 'PNG': 'png', 'WEBP': 'webp'}
+
+
+def validate_profile_fields(codename, email, gender, exclude_user_id=None):
+    """Validates codename/email/gender. Returns a list of error messages."""
+    errors = []
+    if codename and len(codename) > 30:
+        errors.append('Codename must be 30 characters or fewer.')
+    if email and not EMAIL_RE.match(email):
+        errors.append('Invalid email address.')
+    elif email:
+        query = User.query.filter(User.email == email)
+        if exclude_user_id is not None:
+            query = query.filter(User.id != exclude_user_id)
+        if query.first():
+            errors.append(f'Email "{email}" is already in use.')
+    if gender and gender not in GENDERS:
+        errors.append('Invalid gender selected.')
+    return errors
+
+
+def read_avatar_upload(file):
+    """Returns (image_bytes, error). image_bytes is None when nothing was uploaded."""
+    if not file or not file.filename:
+        return None, None
+    if file.mimetype not in AVATAR_MIME_TYPES:
+        return None, 'Profile picture must be a JPG, PNG, or WEBP image.'
+    data = file.read(AVATAR_MAX_BYTES + 1)
+    if len(data) > AVATAR_MAX_BYTES:
+        return None, 'Profile picture must be 2MB or smaller.'
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            if img.format not in AVATAR_EXTENSIONS:
+                return None, 'Profile picture must be a JPG, PNG, or WEBP image.'
+            img.verify()
+    except Exception:
+        return None, 'Profile picture is not a valid image.'
+    return data, None
+
+
+def delete_avatar_file(filename):
+    if filename:
+        (AVATAR_DIR / Path(filename).name).unlink(missing_ok=True)
+
+
+def save_avatar(user, data):
+    """Resizes to max 400x400, saves to disk, and replaces the user's old avatar file."""
+    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    img = Image.open(io.BytesIO(data))
+    ext = AVATAR_EXTENSIONS[img.format]
+    img = ImageOps.exif_transpose(img)
+    img.thumbnail((400, 400))
+    filename = f'avatar_{user.id}_{int(time.time())}.{ext}'
+    img.save(AVATAR_DIR / filename)
+    if user.profile_pic != filename:
+        delete_avatar_file(user.profile_pic)
+    user.profile_pic = filename
 
 
 @login_manager.user_loader
@@ -401,11 +471,19 @@ def admin_new_employee():
         date_hired_str = request.form.get('date_hired', '').strip()
         monthly_salary_str = request.form.get('monthly_salary', '').strip()
         employee_type = request.form.get('employee_type', '').strip()
+        codename = request.form.get('codename', '').strip() or None
+        email = request.form.get('email', '').strip().lower()
+        gender = request.form.get('gender', '').strip()
 
         errors = []
         if not all([username, password, fname, lname, role, job_position,
-                    birthdate_str, date_hired_str, monthly_salary_str, employee_type]):
+                    birthdate_str, date_hired_str, monthly_salary_str, employee_type,
+                    email, gender]):
             errors.append('All fields are required.')
+        errors.extend(validate_profile_fields(codename, email, gender))
+        avatar_data, avatar_error = read_avatar_upload(request.files.get('profile_pic'))
+        if avatar_error:
+            errors.append(avatar_error)
         if role not in ('employee', 'admin'):
             errors.append('Invalid role selected.')
         if employee_type and employee_type not in ('full-time', 'part-time', 'outsourced'):
@@ -445,7 +523,8 @@ def admin_new_employee():
                            'lname': lname, 'role': role, 'job_position': job_position,
                            'birthdate': birthdate_str, 'date_hired': date_hired_str,
                            'monthly_salary': monthly_salary_str,
-                           'employee_type': employee_type})
+                           'employee_type': employee_type,
+                           'codename': codename or '', 'email': email, 'gender': gender})
 
         new_user = User(
             username=username,
@@ -456,9 +535,14 @@ def admin_new_employee():
             monthly_salary=monthly_salary,
             employee_type=employee_type,
             employment_status='active',
+            codename=codename, email=email, gender=gender,
         )
         db.session.add(new_user)
         db.session.commit()
+        if avatar_data:
+            # Needs new_user.id for the filename, so save after the first commit
+            save_avatar(new_user, avatar_data)
+            db.session.commit()
         flash(f'User "{username}" created successfully.', 'success')
         return redirect(url_for('admin_employees'))
     return render_template('admin_new_employee.html', form_data={})
@@ -470,6 +554,26 @@ def admin_edit_employee(user_id):
     emp = User.query.get_or_404(user_id)
 
     if request.method == 'POST':
+        codename = request.form.get('codename', '').strip() or None
+        email = request.form.get('email', '').strip().lower()
+        gender = request.form.get('gender', '').strip()
+
+        errors = []
+        if not email or not gender:
+            errors.append('Email and gender are required.')
+        errors.extend(validate_profile_fields(codename, email, gender, exclude_user_id=emp.id))
+        avatar_data, avatar_error = read_avatar_upload(request.files.get('profile_pic'))
+        if avatar_error:
+            errors.append(avatar_error)
+        if errors:
+            for e in errors:
+                flash(e, 'error')
+            return render_template('admin_edit_employee.html', emp=emp)
+
+        emp.codename = codename
+        emp.email = email
+        emp.gender = gender
+
         emp.fname = request.form.get('fname', '').strip() or emp.fname
         emp.mname = (request.form.get('mname', '').strip().rstrip('.').upper()[:1] or None)
         emp.lname = request.form.get('lname', '').strip() or emp.lname
@@ -522,6 +626,13 @@ def admin_edit_employee(user_id):
                 return render_template('admin_edit_employee.html', emp=emp)
             emp.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
             flash('Password updated.', 'success')
+
+        # Touch the disk last so an early return above can't orphan or delete files
+        if avatar_data:
+            save_avatar(emp, avatar_data)
+        elif request.form.get('remove_avatar'):
+            delete_avatar_file(emp.profile_pic)
+            emp.profile_pic = None
 
         db.session.commit()
         flash(f'Profile for {emp.full_name} updated.', 'success')

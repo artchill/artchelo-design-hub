@@ -7,13 +7,24 @@
 </div>
 
 <div class="bg-white rounded-lg shadow p-6 max-w-3xl">
-    <form method="POST" class="space-y-5"
+    <form method="POST" enctype="multipart/form-data" class="space-y-5"
           data-confirm="Save changes to this employee profile?"
           data-confirm-title="Confirm Save"
           data-confirm-button="Save Changes">
 
         <!-- READ-ONLY INFO -->
-        <div class="bg-slate-50 border border-slate-200 rounded p-4 grid grid-cols-2 gap-4 text-sm">
+        <div class="flex items-start gap-4">
+        <div class="shrink-0">
+            {% if emp.profile_pic %}
+            <img src="{{ emp.avatar_url }}" alt="{{ emp.full_name }}"
+                 class="w-20 h-20 rounded-full object-cover border border-slate-200">
+            {% else %}
+            <div class="w-20 h-20 rounded-full bg-slate-700 text-white flex items-center justify-center text-2xl font-semibold">
+                {{ emp.initials }}
+            </div>
+            {% endif %}
+        </div>
+        <div class="flex-1 bg-slate-50 border border-slate-200 rounded p-4 grid grid-cols-2 gap-4 text-sm">
             <div>
                 <p class="text-xs text-slate-500 uppercase">Employee ID</p>
                 <p class="font-mono text-slate-700 mt-1">#{{ emp.id }}</p>
@@ -44,6 +55,7 @@
                 </p>
             </div>
         </div>
+        </div>
 
         <!-- PERSONAL INFO -->
         <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide pt-2">Personal Info</h2>
@@ -66,7 +78,7 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-3 gap-4">
             <div>
                 <label class="block text-sm font-medium text-slate-700 mb-1">Birthdate</label>
                 <input type="date" name="birthdate" id="birthdate-input"
@@ -80,6 +92,29 @@
                        value="{{ emp.date_hired.strftime('%Y-%m-%d') if emp.date_hired else '' }}"
                        class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Gender</label>
+                <select name="gender" required
+                        class="w-full border border-slate-300 rounded px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <option value="">— Select —</option>
+                    {% for value, label in [('male','Male'), ('female','Female'), ('prefer_not_to_say','Prefer not to say')] %}
+                    <option value="{{ value }}" {% if emp.gender == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Profile Picture</label>
+            <input type="file" name="profile_pic" accept="image/jpeg,image/png,image/webp"
+                   class="w-full md:w-1/2 text-sm border border-slate-300 rounded px-3 py-1.5 bg-white file:mr-3 file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:rounded file:text-slate-700">
+            <p class="text-xs text-slate-500 mt-1">Max 2MB, JPG/PNG/WEBP. Uploading replaces the current picture.</p>
+            {% if emp.profile_pic %}
+            <label class="inline-flex items-center gap-2 mt-2 text-sm text-slate-700">
+                <input type="checkbox" name="remove_avatar" value="1" class="rounded border-slate-300">
+                Remove current avatar
+            </label>
+            {% endif %}
         </div>
 
         <!-- JOB INFO -->
@@ -98,6 +133,21 @@
                     <option value="{{ r }}" {% if emp.role == r %}selected{% endif %}>{{ r|capitalize }}</option>
                     {% endfor %}
                 </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Codename</label>
+                <input type="text" name="codename" maxlength="30" value="{{ emp.codename or '' }}"
+                       placeholder="e.g. chelo"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                <input type="email" name="email" required value="{{ emp.email or '' }}"
+                       placeholder="e.g. name@example.com"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             </div>
         </div>
 

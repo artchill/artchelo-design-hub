@@ -1,3 +1,4 @@
+from flask import url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime, date
@@ -14,6 +15,10 @@ class User(UserMixin, db.Model):
     mname = db.Column(db.String(5), nullable=True)  # middle initial (e.g. "L" or "L.")
     lname = db.Column(db.String(80), nullable=False)
     role = db.Column(db.String(20), nullable=False)
+    codename = db.Column(db.String(30), nullable=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    profile_pic = db.Column(db.String(255), nullable=True)  # filename in static/uploads/avatars/
+    gender = db.Column(db.String(20), nullable=True)  # male/female/prefer_not_to_say
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Profile fields
@@ -59,6 +64,13 @@ class User(UserMixin, db.Model):
     def initials(self):
         """Two-letter initials for avatar badges."""
         return (self.fname[0] + self.lname[0]).upper()
+
+    @property
+    def avatar_url(self):
+        """URL of the uploaded profile picture, or None to fall back to initials."""
+        if not self.profile_pic:
+            return None
+        return url_for('static', filename='uploads/avatars/' + self.profile_pic)
 
 
 class Attendance(db.Model):

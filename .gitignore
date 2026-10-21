@@ -36,3 +36,9 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# User uploads
+static/uploads/*
+!static/uploads/avatars/
+static/uploads/avatars/*
+!static/uploads/avatars/.gitkeep

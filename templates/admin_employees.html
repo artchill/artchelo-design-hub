@@ -62,10 +62,10 @@
                 <tr>
                     <th class="px-3 py-2 text-left">ID</th>
                     <th class="px-3 py-2 text-left">Full Name</th>
+                    <th class="px-3 py-2 text-left">Codename</th>
                     <th class="px-3 py-2 text-left">Username</th>
+                    <th class="px-3 py-2 text-left">Email</th>
                     <th class="px-3 py-2 text-left">Job Position</th>
-                    <th class="px-3 py-2 text-left">Type</th>
-                    <th class="px-3 py-2 text-left">Date Hired</th>
                     <th class="px-3 py-2 text-left">Status</th>
                     <th class="px-3 py-2 text-left">Actions</th>
                 </tr>
@@ -75,17 +75,24 @@
                 {% set row_muted = e.employment_status != 'active' %}
                 <tr class="border-t {% if row_muted %}bg-slate-50 text-slate-500{% endif %}">
                     <td class="px-3 py-2">{{ e.id }}</td>
-                    <td class="px-3 py-2 font-medium">{{ e.full_name }}</td>
+                    <td class="px-3 py-2">
+                        <div class="flex items-center gap-2">
+                            {% if e.avatar_url %}
+                            <img src="{{ e.avatar_url }}" alt="" class="w-8 h-8 rounded-full object-cover shrink-0">
+                            {% else %}
+                            <div class="w-8 h-8 rounded-full bg-slate-700 text-white flex items-center justify-center text-xs font-semibold shrink-0">
+                                {{ e.initials }}
+                            </div>
+                            {% endif %}
+                            <span class="font-medium">{{ e.full_name }}</span>
+                        </div>
+                    </td>
+                    <td class="px-3 py-2 text-xs">{{ e.codename or '—' }}</td>
                     <td class="px-3 py-2 text-xs">{{ e.username }}</td>
+                    <td class="px-3 py-2 text-xs">
+                        <a href="mailto:{{ e.email }}" class="text-blue-600 hover:underline">{{ e.email }}</a>
+                    </td>
                     <td class="px-3 py-2 text-xs">{{ e.job_position or '—' }}</td>
-                    <td class="px-3 py-2 text-xs">
-                        {% if e.employee_type %}
-                        <span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded">{{ e.employee_type|capitalize }}</span>
-                        {% else %}—{% endif %}
-                    </td>
-                    <td class="px-3 py-2 text-xs">
-                        {% if e.date_hired %}{{ e.date_hired.strftime('%b %d, %Y').replace(' 0', ' ') }}{% else %}—{% endif %}
-                    </td>
                     <td class="px-3 py-2">
                         {% set badge = {
                             'active': 'bg-green-100 text-green-800',

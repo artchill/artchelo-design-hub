@@ -8,7 +8,7 @@
 </div>
 
 <div class="bg-white rounded-lg shadow p-6 max-w-2xl">
-    <form method="POST" class="space-y-4">
+    <form method="POST" enctype="multipart/form-data" class="space-y-4">
         <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wide">Personal Info</h2>
         <div class="grid grid-cols-12 gap-4">
             <div class="col-span-5">
@@ -39,6 +39,40 @@
                 <label class="block text-sm font-medium text-slate-700 mb-1">Date Hired <span class="text-red-600">*</span></label>
                 <input type="date" name="date_hired" required value="{{ form_data.date_hired or '' }}"
                        class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Codename</label>
+                <input type="text" name="codename" maxlength="30" value="{{ form_data.codename or '' }}"
+                       placeholder="e.g. chelo"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Email <span class="text-red-600">*</span></label>
+                <input type="email" name="email" required value="{{ form_data.email or '' }}"
+                       placeholder="e.g. name@example.com"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Gender <span class="text-red-600">*</span></label>
+                <select name="gender" required
+                        class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                    <option value="">— Select —</option>
+                    <option value="male" {% if form_data.gender == 'male' %}selected{% endif %}>Male</option>
+                    <option value="female" {% if form_data.gender == 'female' %}selected{% endif %}>Female</option>
+                    <option value="prefer_not_to_say" {% if form_data.gender == 'prefer_not_to_say' %}selected{% endif %}>Prefer not to say</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Profile Picture</label>
+                <input type="file" name="profile_pic" accept="image/jpeg,image/png,image/webp"
+                       class="w-full text-sm border border-slate-300 rounded px-3 py-1.5 bg-white file:mr-3 file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:rounded file:text-slate-700">
+                <p class="text-xs text-slate-500 mt-1">Max 2MB, JPG/PNG/WEBP</p>
             </div>
         </div>
 
