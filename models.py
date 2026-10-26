@@ -53,6 +53,14 @@ class User(UserMixin, db.Model):
         return self.employment_status == 'active'
 
     @property
+    def is_super_admin(self):
+        return self.role == 'super-admin'
+
+    @property
+    def is_admin_or_above(self):
+        return self.role in ('admin', 'super-admin')
+
+    @property
     def full_name(self):
         """Returns 'First M. Last' if middle initial exists, else 'First Last'."""
         mi = (self.mname or '').strip().rstrip('.')

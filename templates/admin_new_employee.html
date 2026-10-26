@@ -91,6 +91,9 @@
                 <option value="">— Select role —</option>
                 <option value="employee" {% if form_data.role == 'employee' %}selected{% endif %}>Employee</option>
                 <option value="admin" {% if form_data.role == 'admin' %}selected{% endif %}>Admin</option>
+                {% if current_user.is_super_admin %}
+                <option value="super-admin" {% if form_data.role == 'super-admin' %}selected{% endif %}>Super-admin</option>
+                {% endif %}
             </select>
         </div>
 

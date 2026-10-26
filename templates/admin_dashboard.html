@@ -39,8 +39,10 @@
                     {% endif %}
                 </td>
                 <td class="px-3 py-2">
+                    {% if current_user.is_super_admin %}
                     <a href="{{ url_for('admin_edit_attendance', record_id=att.id) }}"
                     class="text-blue-600 hover:text-blue-800 text-sm font-medium">Edit</a>
+                    {% endif %}
                 </td>
                 </tr>
                 {% endfor %}

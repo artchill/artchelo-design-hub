@@ -33,7 +33,7 @@
                 {% elif day.status == 'sl' %}
                     <span class="bg-amber-100 text-amber-800 text-xs font-medium px-2 py-1 rounded">SL</span>
                 {% elif day.status == 'no_work' %}
-                    <span class="bg-slate-200 text-slate-700 text-xs font-medium px-2 py-1 rounded">No Work</span>
+                    <span class="bg-slate-200 text-slate-700 text-xs font-medium px-2 py-1 rounded">Weekend</span>
                 {% else %}
                     <span class="text-xs text-slate-400">—</span>
                 {% endif %}
@@ -70,7 +70,7 @@
                 {% endif %}
             </td>
             <td class="px-3 py-2 text-xs">
-                {% if day.status == 'present' and current_user.role == 'admin' %}
+                {% if day.status == 'present' and current_user.is_super_admin %}
                     {% for a in day.attendances %}
                         <a href="{{ url_for('admin_edit_attendance', record_id=a.id) }}"
                            class="text-blue-600 hover:text-blue-800">Edit</a>{% if not loop.last %}<br>{% endif %}
@@ -115,5 +115,5 @@
     <span><span class="bg-red-100 text-red-800 px-2 py-0.5 rounded">Absent</span> = Weekday, no time in</span>
     <span><span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded">VL</span> = Vacation Leave</span>
     <span><span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded">SL</span> = Sick Leave</span>
-    <span><span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded">No Work</span> = Weekend, no time in</span>
+    <span><span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded">Weekend</span> = Saturday/Sunday, no time in</span>
 </div>

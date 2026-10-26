@@ -40,7 +40,7 @@
         </div>
 
         <nav class="flex-1 py-3 px-3 overflow-y-auto">
-            {% if current_user.role == 'admin' %}
+            {% if current_user.is_admin_or_above %}
                 <a href="{{ url_for('dashboard') }}" class="sidebar-link">
                     <span>📊</span> Dashboard
                 </a>
@@ -88,6 +88,9 @@
                 <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium truncate">{{ current_user.full_name }}</div>
                     <div class="text-xs text-slate-400 truncate">{{ current_user.role|capitalize }}</div>
+                    {% if current_user.is_super_admin %}
+                    <span class="text-xs bg-purple-600 text-white px-2 py-0.5 rounded">Super-admin</span>
+                    {% endif %}
                 </div>
             </div>
             <a href="{{ url_for('change_password') }}"

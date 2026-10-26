@@ -66,6 +66,7 @@
                     <th class="px-3 py-2 text-left">Username</th>
                     <th class="px-3 py-2 text-left">Email</th>
                     <th class="px-3 py-2 text-left">Job Position</th>
+                    <th class="px-3 py-2 text-left">Role</th>
                     <th class="px-3 py-2 text-left">Status</th>
                     <th class="px-3 py-2 text-left">Actions</th>
                 </tr>
@@ -85,6 +86,9 @@
                             </div>
                             {% endif %}
                             <span class="font-medium">{{ e.full_name }}</span>
+                            {% if e.is_super_admin %}
+                            <span class="text-[10px] bg-purple-600 text-white px-1.5 py-0.5 rounded" title="Super-admin">★</span>
+                            {% endif %}
                         </div>
                     </td>
                     <td class="px-3 py-2 text-xs">{{ e.codename or '—' }}</td>
@@ -93,6 +97,14 @@
                         <a href="mailto:{{ e.email }}" class="text-blue-600 hover:underline">{{ e.email }}</a>
                     </td>
                     <td class="px-3 py-2 text-xs">{{ e.job_position or '—' }}</td>
+                    <td class="px-3 py-2">
+                        {% set role_badge = {
+                            'super-admin': 'bg-purple-100 text-purple-800',
+                            'admin': 'bg-blue-100 text-blue-800',
+                            'employee': 'bg-slate-100 text-slate-700',
+                        }.get(e.role, 'bg-slate-100 text-slate-600') %}
+                        <span class="{{ role_badge }} text-xs font-medium px-2 py-1 rounded">{{ e.role|capitalize }}</span>
+                    </td>
                     <td class="px-3 py-2">
                         {% set badge = {
                             'active': 'bg-green-100 text-green-800',

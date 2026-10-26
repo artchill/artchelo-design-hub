@@ -1,4 +1,6 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import (
+    Flask, render_template, request, redirect, url_for, flash, abort, send_file
+)
 from flask_login import (
     LoginManager, login_user, logout_user, login_required, current_user
 )
@@ -7,10 +9,14 @@ from datetime import datetime, date, timedelta
 from calendar import monthrange, month_name
 from functools import wraps
 from pathlib import Path
+from urllib.parse import urlparse
+import csv
 import io
 import re
 import time
 from PIL import Image, ImageOps
+from openpyxl import Workbook
+from openpyxl.styles import Border, Font, PatternFill, Side
 from sqlalchemy import extract, func
 from models import (
     db, User, Attendance, LeaveDay,
@@ -109,13 +115,38 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
+def has_role(user, role):
+    """Super-admin passes 'admin' checks; every other role must match exactly."""
+    if role == 'admin':
+        return user.is_admin_or_above
+    return user.role == role
+
+
+def assignable_roles(user):
+    """Roles `user` may give to others when creating or editing an account."""
+    if user.is_super_admin:
+        return ('employee', 'admin', 'super-admin')
+    return ('employee', 'admin')
+
+
+def safe_referrer(fallback):
+    """request.referrer if it's on this host and not the current page, else fallback."""
+    ref = request.referrer
+    if ref and urlparse(ref).netloc == request.host and ref != request.url:
+        return ref
+    return fallback
+
+
 def role_required(role):
     def decorator(f):
         @wraps(f)
         def wrapped(*args, **kwargs):
             if not current_user.is_authenticated:
                 return redirect(url_for('login'))
-            if current_user.role != role:
+            if not has_role(current_user, role):
+                if role == 'super-admin' and current_user.is_admin_or_above:
+                    flash('Access denied: this action requires super-admin privileges.', 'error')
+                    return redirect(safe_referrer(url_for('dashboard')))
                 flash('Access denied.', 'error')
                 return redirect(url_for('login'))
             return f(*args, **kwargs)
@@ -195,7 +226,7 @@ def build_month_calendar(user_id, year, month):
 def index():
     if current_user.is_authenticated:
         return redirect(url_for(
-            'dashboard' if current_user.role == 'admin'
+            'dashboard' if current_user.is_admin_or_above
             else 'employee_dashboard'
         ))
     return redirect(url_for('login'))
@@ -216,7 +247,7 @@ def login():
                 return render_template('login.html')
             login_user(user)
             return redirect(url_for(
-                'dashboard' if user.role == 'admin'
+                'dashboard' if user.is_admin_or_above
                 else 'employee_dashboard'
             ))
         flash('Invalid username or password.', 'error')
@@ -259,7 +290,7 @@ def change_password():
         db.session.commit()
         flash('Password changed successfully.', 'success')
         return redirect(url_for(
-            'dashboard' if current_user.role == 'admin' else 'employee_dashboard'
+            'dashboard' if current_user.is_admin_or_above else 'employee_dashboard'
         ))
 
     return render_template('change_password.html')
@@ -346,7 +377,7 @@ def mark_leave():
         redirect_kwargs['year'] = request.form.get('year')
         redirect_kwargs['month'] = request.form.get('month')
 
-    if current_user.role != 'admin' and target_user_id != current_user.id:
+    if not current_user.is_admin_or_above and target_user_id != current_user.id:
         flash('You can only mark leave for yourself.', 'error')
         return redirect(url_for(redirect_to, **redirect_kwargs))
     if leave_type not in ('VL', 'SL'):
@@ -392,7 +423,7 @@ def mark_leave():
 @login_required
 def delete_leave(leave_id):
     leave = LeaveDay.query.get_or_404(leave_id)
-    if current_user.role != 'admin' and leave.user_id != current_user.id:
+    if not current_user.is_admin_or_above and leave.user_id != current_user.id:
         flash('Not allowed.', 'error')
         return redirect(url_for('employee_dashboard'))
     redirect_to = request.form.get('redirect_to', 'employee_dashboard')
@@ -436,12 +467,176 @@ def admin_employee_tracker(employee_id):
     )
 
 
+# ---------- Attendance Export ----------
+
+EXPORT_STATUS_LABELS = {
+    'present': 'Present', 'vl': 'VL', 'sl': 'SL',
+    'absent': 'Absent', 'no_work': 'Weekend', 'future': 'Future',
+}
+EXPORT_COLUMNS = ['Date', 'Day', 'Status', 'Time In', 'Time Out', 'Hours', 'Task / Note']
+
+
+def _export_year_month():
+    try:
+        year = int(request.args['year'])
+        month = int(request.args['month'])
+    except (KeyError, ValueError):
+        abort(400, 'year and month query parameters are required integers.')
+    if not 1 <= month <= 12:
+        abort(400, 'month must be between 1 and 12.')
+    return year, month
+
+
+def build_attendance_export(employee, year, month):
+    """Returns (header_rows, table_rows, summary_rows, sheet_title, filename_stem).
+    Table rows hold raw values: hours is a float or None."""
+    calendar = build_month_calendar(employee.id, year, month)
+
+    header = [
+        ('Employee', employee.full_name),
+        ('Codename', f'@{employee.codename}' if employee.codename else '—'),
+        ('Position', employee.job_position or '—'),
+        ('Email', employee.email),
+        ('Month', f'{month_name[month]} {year}'),
+        ('Generated', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+    ]
+
+    rows = []
+    counts = {label: 0 for label in EXPORT_STATUS_LABELS.values()}
+    total_hours = 0.0
+    for day in calendar:
+        status = EXPORT_STATUS_LABELS.get(day['status'], day['status'].upper())
+        counts[status] = counts.get(status, 0) + 1
+        time_in = time_out = ''
+        hours = None
+        note = ''
+
+        sessions = day['attendances']
+        if sessions:
+            time_in = min(a.datetime_in for a in sessions).strftime('%I:%M %p')
+            outs = [a.datetime_out for a in sessions if a.datetime_out]
+            if outs:
+                time_out = max(outs).strftime('%I:%M %p')
+            logged = [a.total_hours for a in sessions if a.total_hours is not None]
+            if logged:
+                hours = sum(logged)
+                total_hours += hours
+            note = ' | '.join(a.task_report for a in sessions if a.task_report)
+        elif day['leave'] and day['leave'].note:
+            note = day['leave'].note
+
+        rows.append([
+            day['date'].strftime('%Y-%m-%d'), day['day_name'], status,
+            time_in, time_out, hours, note,
+        ])
+
+    summary = [
+        ('Total Present days', counts['Present']),
+        ('Total Absent days', counts['Absent']),
+        ('Total VL days', counts['VL']),
+        ('Total SL days', counts['SL']),
+        ('Total Weekend days', counts['Weekend']),
+        ('Total Hours Worked', round(total_hours, 2)),
+    ]
+
+    sheet_title = f'{month_name[month]} {year}'
+    stem = f'attendance_{employee.fname}_{employee.lname}_{year}_{month:02d}'
+    stem = stem.lower().replace(' ', '_')
+    return header, rows, summary, sheet_title, stem
+
+
+@app.route('/admin/employees/<int:employee_id>/export/xlsx')
+@role_required('admin')
+def export_attendance_xlsx(employee_id):
+    employee = User.query.get_or_404(employee_id)
+    year, month = _export_year_month()
+    header, rows, summary, sheet_title, stem = build_attendance_export(employee, year, month)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title
+    bold = Font(bold=True)
+
+    for label, value in header:
+        ws.append([label, value])
+        ws.cell(row=ws.max_row, column=1).font = bold
+    ws.append([])
+
+    ws.append(EXPORT_COLUMNS)
+    table_header_row = ws.max_row
+    header_fill = PatternFill('solid', fgColor='F1F5F9')
+    header_border = Border(bottom=Side(style='thin', color='94A3B8'))
+    for cell in ws[table_header_row]:
+        cell.font = bold
+        cell.fill = header_fill
+        cell.border = header_border
+
+    status_fills = {
+        'Present': 'DCFCE7', 'VL': 'F3E8FF', 'SL': 'FEF3C7',
+        'Absent': 'FEE2E2', 'Weekend': 'F1F5F9',
+    }
+    for row in rows:
+        ws.append(row)
+        r = ws.max_row
+        color = status_fills.get(row[2])
+        if color:
+            ws.cell(row=r, column=3).fill = PatternFill('solid', fgColor=color)
+        ws.cell(row=r, column=6).number_format = '0.00'
+
+    ws.append([])
+    for label, value in summary:
+        ws.append([label, value])
+        ws.cell(row=ws.max_row, column=1).font = bold
+    ws.cell(row=ws.max_row, column=2).number_format = '0.00'
+
+    # Column A also holds the header/summary labels, so it's wider than a date needs.
+    widths = {'A': 20, 'B': 12, 'C': 10, 'D': 10, 'E': 10, 'F': 8, 'G': 50}
+    for col, width in widths.items():
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = ws.cell(row=table_header_row + 1, column=1)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True, download_name=f'{stem}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+@app.route('/admin/employees/<int:employee_id>/export/csv')
+@role_required('admin')
+def export_attendance_csv(employee_id):
+    employee = User.query.get_or_404(employee_id)
+    year, month = _export_year_month()
+    header, rows, summary, _, stem = build_attendance_export(employee, year, month)
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerows(header)
+    writer.writerow([])
+    writer.writerow(EXPORT_COLUMNS)
+    for row in rows:
+        hours = row[5]
+        writer.writerow(row[:5] + ['' if hours is None else f'{hours:.2f}'] + row[6:])
+    writer.writerow([])
+    writer.writerows(summary[:-1])
+    label, total = summary[-1]
+    writer.writerow([label, f'{total:.2f}'])
+
+    buf = io.BytesIO(out.getvalue().encode('utf-8-sig'))
+    return send_file(
+        buf, as_attachment=True, download_name=f'{stem}.csv',
+        mimetype='text/csv',
+    )
+
+
 @app.route('/admin/employees')
 @role_required('admin')
 def admin_employees():
     show_all = request.args.get('show_all', '') == '1'
     search = request.args.get('q', '').strip()
-    query = User.query.filter(User.role == 'employee')
+    query = User.query
     if not show_all:
         query = query.filter(User.employment_status == 'active')
     if search:
@@ -484,7 +679,9 @@ def admin_new_employee():
         avatar_data, avatar_error = read_avatar_upload(request.files.get('profile_pic'))
         if avatar_error:
             errors.append(avatar_error)
-        if role not in ('employee', 'admin'):
+        if role == 'super-admin' and not current_user.is_super_admin:
+            errors.append('Access denied: only super-admin can assign super-admin role.')
+        elif role not in assignable_roles(current_user):
             errors.append('Invalid role selected.')
         if employee_type and employee_type not in ('full-time', 'part-time', 'outsourced'):
             errors.append('Invalid employee type.')
@@ -552,13 +749,29 @@ def admin_new_employee():
 @role_required('admin')
 def admin_edit_employee(user_id):
     emp = User.query.get_or_404(user_id)
+    # An admin editing a super-admin can't touch role, password or status:
+    # a password reset would let them log in as the super-admin.
+    protected = emp.is_super_admin and not current_user.is_super_admin
 
     if request.method == 'POST':
         codename = request.form.get('codename', '').strip() or None
         email = request.form.get('email', '').strip().lower()
         gender = request.form.get('gender', '').strip()
+        new_role = request.form.get('role', emp.role)
 
         errors = []
+        if new_role != emp.role:
+            if protected:
+                errors.append('Access denied: only super-admin can change a super-admin\'s role.')
+            elif new_role == 'super-admin' and not current_user.is_super_admin:
+                errors.append('Access denied: only super-admin can assign super-admin role')
+            elif new_role not in assignable_roles(current_user):
+                errors.append('Invalid role selected.')
+            elif emp.is_super_admin and User.query.filter_by(role='super-admin').count() <= 1:
+                errors.append('Cannot change the role of the last super-admin.')
+        if protected and (request.form.get('new_password', '').strip()
+                          or request.form.get('employment_status', emp.employment_status) != emp.employment_status):
+            errors.append('Access denied: only super-admin can reset a super-admin\'s password or status.')
         if not email or not gender:
             errors.append('Email and gender are required.')
         errors.extend(validate_profile_fields(codename, email, gender, exclude_user_id=emp.id))
@@ -578,7 +791,7 @@ def admin_edit_employee(user_id):
         emp.mname = (request.form.get('mname', '').strip().rstrip('.').upper()[:1] or None)
         emp.lname = request.form.get('lname', '').strip() or emp.lname
         emp.username = request.form.get('username', '').strip() or emp.username
-        emp.role = request.form.get('role', emp.role)
+        emp.role = new_role
         emp.job_position = request.form.get('job_position', '').strip() or emp.job_position
         emp.employee_type = request.form.get('employee_type', emp.employee_type)
 
@@ -642,7 +855,7 @@ def admin_edit_employee(user_id):
 
 
 @app.route('/admin/attendance/<int:record_id>/edit', methods=['GET', 'POST'])
-@role_required('admin')
+@role_required('super-admin')
 def admin_edit_attendance(record_id):
     record = Attendance.query.get_or_404(record_id)
     if request.method == 'POST':

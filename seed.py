@@ -26,13 +26,26 @@ def seed():
         chelo = User(
             username='cheluarbuis',
             password_hash=generate_password_hash('admin@chelo1992', method='pbkdf2:sha256'),
-            fname='Chilli', mname='L', lname='Arbuis', role='admin',
+            fname='Chilli', mname='L', lname='Arbuis', role='super-admin',
             codename='chelo', email='cheluarbuis@gmail.com',
             gender='female', profile_pic=None,
             job_position='Founder & Senior Web Developer',
             birthdate=date(1992, 5, 20),
             date_hired=date(2020, 1, 1),
             monthly_salary=60000.00,
+            employee_type='full-time',
+            employment_status='active',
+        )
+        anna = User(
+            username='aadmin',
+            password_hash=generate_password_hash('admin123', method='pbkdf2:sha256'),
+            fname='Anna', mname='D', lname='Admin', role='admin',
+            codename='anna-adm', email='anna.admin@artchelo.design',
+            gender='female', profile_pic=None,
+            job_position='Office Admin',
+            birthdate=date(1990, 1, 15),
+            date_hired=date(2023, 5, 1),
+            monthly_salary=22000.00,
             employee_type='full-time',
             employment_status='active',
         )
@@ -60,7 +73,7 @@ def seed():
                  employee_type='part-time',
                  employment_status='active'),
         ]
-        db.session.add_all([chelo] + employees)
+        db.session.add_all([chelo, anna] + employees)
         db.session.commit()
 
         # --- Clients (all invented) ---
@@ -228,8 +241,9 @@ def seed():
         print(f'  Projects: {Project.query.count()}')
         print()
         print('Credentials:')
-        print('  Chilli (admin) -> cheluarbuis / admin@chelo1992')
-        print('  Employee       -> jdoe / employee123')
+        print('  Chilli (super-admin) -> cheluarbuis / admin@chelo1992')
+        print('  Anna (admin)         -> aadmin / admin123')
+        print('  Employee             -> jdoe / employee123')
 
 
 if __name__ == '__main__':

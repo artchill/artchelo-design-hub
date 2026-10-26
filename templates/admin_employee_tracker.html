@@ -3,7 +3,7 @@
 {% block content %}
 {% set redirect_to = 'admin_employee_tracker' %}
 
-<h1 class="text-2xl font-bold text-slate-800 mb-6">AFSI Attendance Tracker</h1>
+<h1 class="text-2xl font-bold text-slate-800 mb-6">Attendance Tracker</h1>
 
 <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
 
@@ -45,6 +45,7 @@
                     <h2 class="text-lg font-semibold">{{ employee.fname }} {{ employee.lname }}</h2>
                     <p class="text-xs text-slate-500">@{{ employee.username }} — {{ month_name }} {{ year }}</p>
                 </div>
+                <div class="flex items-center gap-2">
                 <form method="GET" class="flex gap-2">
                     <select name="month" class="border border-slate-300 rounded px-2 py-1 text-sm">
                         {% for m in range(1, 13) %}
@@ -60,6 +61,24 @@
                     </select>
                     <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm">View</button>
                 </form>
+                <div class="relative inline-block">
+                    <button type="button" id="export-dropdown-btn"
+                            class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1 rounded text-sm flex items-center gap-1">
+                        Export <span class="text-xs">▾</span>
+                    </button>
+                    <div id="export-dropdown-menu"
+                         class="hidden absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded shadow-lg z-10">
+                        <a href="{{ url_for('export_attendance_xlsx', employee_id=employee.id, year=year, month=month) }}"
+                           class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                            📗 Excel (.xlsx)
+                        </a>
+                        <a href="{{ url_for('export_attendance_csv', employee_id=employee.id, year=year, month=month) }}"
+                           class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                            📄 CSV (.csv)
+                        </a>
+                    </div>
+                </div>
+                </div>
             </div>
 
             {% include '_calendar_table.html' %}
@@ -67,4 +86,16 @@
     </section>
 
 </div>
+
+<script>
+    const exportBtn = document.getElementById('export-dropdown-btn');
+    const exportMenu = document.getElementById('export-dropdown-menu');
+    exportBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        exportMenu.classList.toggle('hidden');
+    });
+    document.addEventListener('click', (e) => {
+        if (!exportBtn.contains(e.target)) exportMenu.classList.add('hidden');
+    });
+</script>
 {% endblock %}
