@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Access Denied' if code == 403 else 'Page Not Found' }} - Artchelo Design{% endblock %}
+
+{# base.html renders `content` when logged in and `content_public` otherwise #}
+{% block content %}
+<div class="flex items-center justify-center min-h-[60vh]">
+    <div class="text-center max-w-md">
+        <div class="text-8xl font-bold bg-gradient-to-br from-blue-500 to-purple-600 bg-clip-text text-transparent mb-4">
+            {{ code }}
+        </div>
+        <h1 class="text-2xl font-bold text-slate-800 mb-2">
+            {{ 'Access Denied' if code == 403 else 'Page Not Found' }}
+        </h1>
+        <p class="text-slate-500 mb-6">
+            The page you're looking for doesn't exist or you don't have permission to view it.
+        </p>
+        <div class="flex gap-3 justify-center">
+            <a href="{{ url_for('dashboard' if current_user.is_admin_or_above else 'employee_dashboard') }}"
+               class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium">
+                Go to Dashboard
+            </a>
+            <a href="javascript:history.back()"
+               class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded font-medium">
+                ← Back
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content_public %}
+<div class="flex items-center justify-center min-h-[70vh]">
+    <div class="text-center max-w-md">
+        <div class="text-8xl font-bold bg-gradient-to-br from-blue-500 to-purple-600 bg-clip-text text-transparent mb-4">
+            {{ code }}
+        </div>
+        <h1 class="text-2xl font-bold text-slate-800 mb-2">
+            {{ 'Access Denied' if code == 403 else 'Page Not Found' }}
+        </h1>
+        <p class="text-slate-500 mb-6">
+            The page you're looking for doesn't exist.
+        </p>
+        <a href="{{ url_for('login') }}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium">
+            Go to Login
+        </a>
+    </div>
+</div>
+{% endblock %}

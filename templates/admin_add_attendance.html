@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block title %}Add Attendance - Admin{% endblock %}
+{% block content %}
+{% set back_url = url_for('admin_employee_tracker', employee_id=employee.id, year=target_date.year, month=target_date.month) %}
+{% set pretty_date = target_date.strftime('%B %d, %Y').replace(' 0', ' ') %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">Add Attendance Record</h1>
+    <a href="{{ back_url }}"
+       class="text-sm text-slate-600 hover:text-slate-800">← Back to Attendance</a>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6 max-w-xl">
+    <div class="mb-4 p-3 bg-slate-50 border border-slate-200 rounded text-sm">
+        <p><strong>Employee:</strong> {{ employee.full_name }}
+           ({{ employee.username }})</p>
+        {% if employee.codename %}
+        <p><strong>Codename:</strong> {{ employee.codename }}</p>
+        {% endif %}
+        <p><strong>Date:</strong> {{ pretty_date }} ({{ target_date.strftime('%A') }})</p>
+        <p class="mt-2 text-amber-700">
+            ⚠️ This record will be marked as added by {{ current_user.full_name }}.
+        </p>
+    </div>
+
+    <form method="POST" action="{{ url_for('admin_add_attendance', employee_id=employee.id, date=date_str) }}"
+          class="space-y-4"
+          data-confirm="Add attendance record for {{ employee.full_name }} on {{ pretty_date }}?"
+          data-confirm-title="Confirm Add"
+          data-confirm-icon="question"
+          data-confirm-button="Add Record">
+        <input type="hidden" name="date" value="{{ date_str }}">
+
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    Time In <span class="text-red-600">*</span>
+                </label>
+                <input type="time" name="time_in" required
+                       value="{{ request.form.get('time_in', '') }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    Time Out
+                </label>
+                <input type="time" name="time_out"
+                       value="{{ request.form.get('time_out', '') }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <p class="text-xs text-slate-500 mt-1">
+                    Leave empty to mark as in-progress.
+                </p>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">
+                Task / Note
+            </label>
+            <textarea name="task_report" rows="4"
+                      placeholder="Tasks completed during this session..."
+                      class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">{{ request.form.get('task_report', '') }}</textarea>
+        </div>
+
+        <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-slate-600">
+            Total hours will be calculated automatically from Time In and Time Out.
+        </div>
+
+        <div class="flex gap-3 pt-2">
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium">
+                Add Attendance Record
+            </button>
+            <a href="{{ back_url }}"
+               class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded font-medium">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

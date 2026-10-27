@@ -70,11 +70,25 @@
                 {% endif %}
             </td>
             <td class="px-3 py-2 text-xs">
-                {% if day.status == 'present' and current_user.is_super_admin %}
-                    {% for a in day.attendances %}
-                        <a href="{{ url_for('admin_edit_attendance', record_id=a.id) }}"
-                           class="text-blue-600 hover:text-blue-800">Edit</a>{% if not loop.last %}<br>{% endif %}
-                    {% endfor %}
+                {% if day.status == 'present' and current_user.is_super_admin and employee %}
+                    {% set n = day.attendances|length %}
+                    {% set pretty_date = day.date.strftime('%B %d, %Y').replace(' 0', ' ') %}
+                    <div class="flex gap-1 items-center flex-wrap">
+                        {% for a in day.attendances %}
+                            <a href="{{ url_for('admin_edit_attendance', record_id=a.id) }}"
+                               class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded font-medium">Edit{% if n > 1 %} #{{ loop.index }}{% endif %}</a>
+                        {% endfor %}
+                        <form method="POST" action="{{ url_for('admin_remove_attendance', employee_id=employee.id) }}"
+                              class="inline"
+                              data-confirm="Remove {% if n > 1 %}all {{ n }} attendance records{% else %}attendance{% endif %} for {{ pretty_date }}? This cannot be undone."
+                              data-confirm-title="Remove Attendance"
+                              data-confirm-icon="warning"
+                              data-confirm-button="Yes, remove">
+                            <input type="hidden" name="date" value="{{ day.date.isoformat() }}">
+                            <button type="submit"
+                                    class="bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded font-medium">Remove</button>
+                        </form>
+                    </div>
                 {% elif day.status in ('vl', 'sl') and not day.is_future %}
                     <form method="POST" action="{{ url_for('delete_leave', leave_id=day.leave.id) }}" class="inline"
                           onsubmit="return confirm('Remove this {{ day.status|upper }} entry?');">
@@ -98,6 +112,10 @@
                                 class="bg-purple-100 hover:bg-purple-200 text-purple-800 px-2 py-1 rounded">VL</button>
                         <button type="submit" name="leave_type" value="SL"
                                 class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-2 py-1 rounded">SL</button>
+                        {% if current_user.is_super_admin and employee %}
+                            <a href="{{ url_for('admin_add_attendance', employee_id=employee.id, date=day.date.isoformat()) }}"
+                               class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded font-medium">+ Add</a>
+                        {% endif %}
                     </form>
                 {% else %}
                     —

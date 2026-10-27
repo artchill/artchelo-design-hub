@@ -129,6 +129,27 @@ def assignable_roles(user):
     return ('employee', 'admin')
 
 
+def visible_users_query():
+    """Query for User, filtering out super-admins when current_user is not super-admin."""
+    query = User.query
+    if not current_user.is_authenticated or not current_user.is_super_admin:
+        query = query.filter(User.role != 'super-admin')
+    return query
+
+
+def can_view_user(user):
+    """Super-admins are hidden from everyone except other super-admins."""
+    return not user.is_super_admin or current_user.is_super_admin
+
+
+def get_visible_user_or_404(user_id):
+    """Like get_or_404, but 404s on super-admins the current user can't see."""
+    user = User.query.get_or_404(user_id)
+    if not can_view_user(user):
+        abort(404)
+    return user
+
+
 def safe_referrer(fallback):
     """request.referrer if it's on this host and not the current page, else fallback."""
     ref = request.referrer
@@ -380,6 +401,7 @@ def mark_leave():
     if not current_user.is_admin_or_above and target_user_id != current_user.id:
         flash('You can only mark leave for yourself.', 'error')
         return redirect(url_for(redirect_to, **redirect_kwargs))
+    get_visible_user_or_404(target_user_id)
     if leave_type not in ('VL', 'SL'):
         flash('Leave type must be VL or SL.', 'error')
         return redirect(url_for(redirect_to, **redirect_kwargs))
@@ -426,6 +448,7 @@ def delete_leave(leave_id):
     if not current_user.is_admin_or_above and leave.user_id != current_user.id:
         flash('Not allowed.', 'error')
         return redirect(url_for('employee_dashboard'))
+    get_visible_user_or_404(leave.user_id)
     redirect_to = request.form.get('redirect_to', 'employee_dashboard')
     redirect_kwargs = {}
     if redirect_to == 'admin_employee_tracker':
@@ -443,7 +466,7 @@ def delete_leave(leave_id):
 @app.route('/admin/dashboard')
 @role_required('admin')
 def admin_dashboard():
-    first_employee = User.query.filter_by(role='employee').order_by(User.fname).first()
+    first_employee = User.query.filter(User.role != 'super-admin').order_by(User.fname).first()
     if first_employee:
         return redirect(url_for('admin_employee_tracker',
                                 employee_id=first_employee.id))
@@ -454,11 +477,14 @@ def admin_dashboard():
 @role_required('admin')
 def admin_employee_tracker(employee_id):
     employee = User.query.get_or_404(employee_id)
+    # Super-admins don't track attendance, so they're hidden here for every viewer
+    if employee.is_super_admin:
+        abort(404)
     today = date.today()
     year = int(request.args.get('year', today.year))
     month = int(request.args.get('month', today.month))
     calendar = build_month_calendar(employee_id, year, month)
-    all_employees = User.query.filter_by(role='employee').order_by(User.fname).all()
+    all_employees = User.query.filter(User.role != 'super-admin').order_by(User.fname).all()
     return render_template(
         'admin_employee_tracker.html',
         employee=employee, all_employees=all_employees, calendar=calendar,
@@ -548,7 +574,7 @@ def build_attendance_export(employee, year, month):
 @app.route('/admin/employees/<int:employee_id>/export/xlsx')
 @role_required('admin')
 def export_attendance_xlsx(employee_id):
-    employee = User.query.get_or_404(employee_id)
+    employee = get_visible_user_or_404(employee_id)
     year, month = _export_year_month()
     header, rows, summary, sheet_title, stem = build_attendance_export(employee, year, month)
 
@@ -607,7 +633,7 @@ def export_attendance_xlsx(employee_id):
 @app.route('/admin/employees/<int:employee_id>/export/csv')
 @role_required('admin')
 def export_attendance_csv(employee_id):
-    employee = User.query.get_or_404(employee_id)
+    employee = get_visible_user_or_404(employee_id)
     year, month = _export_year_month()
     header, rows, summary, _, stem = build_attendance_export(employee, year, month)
 
@@ -636,7 +662,7 @@ def export_attendance_csv(employee_id):
 def admin_employees():
     show_all = request.args.get('show_all', '') == '1'
     search = request.args.get('q', '').strip()
-    query = User.query
+    query = visible_users_query()
     if not show_all:
         query = query.filter(User.employment_status == 'active')
     if search:
@@ -748,7 +774,7 @@ def admin_new_employee():
 @app.route('/admin/employees/<int:user_id>/edit', methods=['GET', 'POST'])
 @role_required('admin')
 def admin_edit_employee(user_id):
-    emp = User.query.get_or_404(user_id)
+    emp = get_visible_user_or_404(user_id)
     # An admin editing a super-admin can't touch role, password or status:
     # a password reset would let them log in as the super-admin.
     protected = emp.is_super_admin and not current_user.is_super_admin
@@ -858,6 +884,8 @@ def admin_edit_employee(user_id):
 @role_required('super-admin')
 def admin_edit_attendance(record_id):
     record = Attendance.query.get_or_404(record_id)
+    if record.user.is_super_admin:
+        abort(404)
     if request.method == 'POST':
         date_str = request.form.get('date', '').strip()
         time_in_str = request.form.get('time_in', '').strip()
@@ -903,6 +931,130 @@ def admin_edit_attendance(record_id):
         return redirect(url_for('admin_employee_tracker',
                                 employee_id=record.user_id))
     return render_template('admin_edit_attendance.html', record=record)
+
+
+@app.route('/admin/employees/<int:employee_id>/attendance/add', methods=['GET', 'POST'])
+@role_required('super-admin')
+def admin_add_attendance(employee_id):
+    employee = User.query.get_or_404(employee_id)
+    if employee.is_super_admin:
+        abort(404)
+
+    date_str = request.args.get('date') if request.method == 'GET' else request.form.get('date')
+    if not date_str:
+        flash('Date is required.', 'error')
+        return redirect(url_for('admin_employee_tracker', employee_id=employee_id))
+    try:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        flash('Invalid date.', 'error')
+        return redirect(url_for('admin_employee_tracker', employee_id=employee_id))
+
+    back = url_for('admin_employee_tracker', employee_id=employee_id,
+                   year=target_date.year, month=target_date.month)
+    if target_date > date.today():
+        flash('Cannot add attendance for future dates.', 'error')
+        return redirect(back)
+
+    existing_attendance = Attendance.query.filter(
+        Attendance.user_id == employee_id,
+        Attendance.datetime_in >= datetime.combine(target_date, datetime.min.time()),
+        Attendance.datetime_in <= datetime.combine(target_date, datetime.max.time()),
+    ).first()
+    if existing_attendance:
+        flash(f'Attendance already exists for {target_date}. Use Edit instead.', 'error')
+        return redirect(back)
+
+    existing_leave = LeaveDay.query.filter_by(user_id=employee_id, date=target_date).first()
+    if existing_leave:
+        flash(f'Leave is marked for {target_date}. Remove the leave first, then add attendance.', 'error')
+        return redirect(back)
+
+    if request.method == 'POST':
+        time_in_str = request.form.get('time_in', '').strip()
+        time_out_str = request.form.get('time_out', '').strip()
+        task_report = request.form.get('task_report', '').strip()
+        errors = []
+        if not time_in_str:
+            errors.append('Time In is required.')
+        new_datetime_in = None
+        new_datetime_out = None
+        if not errors:
+            try:
+                new_datetime_in = datetime.strptime(
+                    f'{date_str} {time_in_str}', '%Y-%m-%d %H:%M')
+            except ValueError:
+                errors.append('Invalid Time In format.')
+        if time_out_str and not errors:
+            try:
+                new_datetime_out = datetime.strptime(
+                    f'{date_str} {time_out_str}', '%Y-%m-%d %H:%M')
+                if new_datetime_out <= new_datetime_in:
+                    errors.append('Time Out must be after Time In.')
+            except ValueError:
+                errors.append('Invalid Time Out format.')
+        if errors:
+            for e in errors:
+                flash(e, 'error')
+            return render_template('admin_add_attendance.html', employee=employee,
+                                   target_date=target_date, date_str=date_str)
+
+        new_record = Attendance(
+            user_id=employee_id,
+            datetime_in=new_datetime_in,
+            datetime_out=new_datetime_out,
+            day=new_datetime_in.strftime('%A'),
+            task_report=task_report or None,
+            # Backfilled records carry the same audit trail as edits
+            edited_at=datetime.now(),
+            edited_by_id=current_user.id,
+        )
+        if new_datetime_out:
+            new_record.total_hours = round(
+                (new_datetime_out - new_datetime_in).total_seconds() / 3600, 2)
+        db.session.add(new_record)
+        db.session.commit()
+        flash(f'Attendance added for {employee.full_name} on '
+              f'{target_date.strftime("%B %d, %Y").replace(" 0", " ")}.', 'success')
+        return redirect(back)
+
+    return render_template('admin_add_attendance.html', employee=employee,
+                           target_date=target_date, date_str=date_str)
+
+
+@app.route('/admin/employees/<int:employee_id>/attendance/remove', methods=['POST'])
+@role_required('super-admin')
+def admin_remove_attendance(employee_id):
+    employee = User.query.get_or_404(employee_id)
+    if employee.is_super_admin:
+        abort(404)
+
+    date_str = request.form.get('date', '').strip()
+    if not date_str:
+        flash('Date is required.', 'error')
+        return redirect(url_for('admin_employee_tracker', employee_id=employee_id))
+    try:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        flash('Invalid date.', 'error')
+        return redirect(url_for('admin_employee_tracker', employee_id=employee_id))
+
+    pretty_date = target_date.strftime('%B %d, %Y').replace(' 0', ' ')
+    records = Attendance.query.filter(
+        Attendance.user_id == employee_id,
+        Attendance.datetime_in >= datetime.combine(target_date, datetime.min.time()),
+        Attendance.datetime_in <= datetime.combine(target_date, datetime.max.time()),
+    ).all()
+    if not records:
+        flash(f'No attendance record found for {pretty_date}.', 'error')
+    else:
+        for rec in records:
+            db.session.delete(rec)
+        db.session.commit()
+        flash(f'Removed {len(records)} attendance record(s) for {employee.full_name} '
+              f'on {pretty_date}.', 'success')
+    return redirect(url_for('admin_employee_tracker', employee_id=employee_id,
+                            year=target_date.year, month=target_date.month))
 
 
 # ========== SALES MODULE ==========
@@ -1309,7 +1461,10 @@ def dashboard():
         User.fname, func.count(Project.id)
     ).join(Project, Project.assigned_developer_id == User.id).filter(
         Project.status == 'ongoing'
-    ).group_by(User.fname).all()
+    )
+    if not current_user.is_super_admin:
+        workload_query = workload_query.filter(User.role != 'super-admin')
+    workload_query = workload_query.group_by(User.fname).all()
     workload_labels = [name for name, _ in workload_query]
     workload_data = [count for _, count in workload_query]
 
@@ -1373,7 +1528,8 @@ def projects_list():
     if tier_filter:
         query = query.filter(Project.package_tier == tier_filter)
     if dev_filter:
-        query = query.filter(Project.assigned_developer_id == int(dev_filter))
+        query = query.filter(
+            Project.assigned_developer_id == get_visible_user_or_404(int(dev_filter)).id)
     if search:
         like = f'%{search}%'
         query = query.filter(db.or_(
@@ -1382,7 +1538,7 @@ def projects_list():
         ))
 
     projects = query.order_by(Project.created_at.desc()).all()
-    all_devs = User.query.order_by(User.fname).all()
+    all_devs = visible_users_query().order_by(User.fname).all()
 
     return render_template(
         'projects_list.html',
@@ -1396,7 +1552,7 @@ def projects_list():
 @role_required('admin')
 def project_new():
     clients = Client.query.order_by(Client.name).all()
-    devs = User.query.order_by(User.fname).all()
+    devs = visible_users_query().order_by(User.fname).all()
     if request.method == 'POST':
         client_id = int(request.form.get('client_id', 0) or 0)
         if not client_id:
@@ -1418,7 +1574,7 @@ def project_new():
         )
         dev_id = request.form.get('assigned_developer_id', '').strip()
         if dev_id:
-            project.assigned_developer_id = int(dev_id)
+            project.assigned_developer_id = get_visible_user_or_404(int(dev_id)).id
 
         start_str = request.form.get('start_date', '').strip()
         if start_str:
@@ -1459,7 +1615,7 @@ def project_new():
 def project_edit(project_id):
     project = Project.query.get_or_404(project_id)
     clients = Client.query.order_by(Client.name).all()
-    devs = User.query.order_by(User.fname).all()
+    devs = visible_users_query().order_by(User.fname).all()
 
     if request.method == 'POST':
         old_status = project.status
@@ -1475,7 +1631,12 @@ def project_edit(project_id):
         project.status = request.form.get('status', project.status)
 
         dev_id = request.form.get('assigned_developer_id', '').strip()
-        project.assigned_developer_id = int(dev_id) if dev_id else None
+        if dev_id:
+            project.assigned_developer_id = get_visible_user_or_404(int(dev_id)).id
+        elif not (project.assigned_developer and not can_view_user(project.assigned_developer)):
+            # A hidden super-admin assignee isn't in the admin's dropdown, so a blank
+            # submission means "unchanged", not "unassign".
+            project.assigned_developer_id = None
 
         project.drive_url = request.form.get('drive_url', '').strip() or None
         project.form_url = request.form.get('form_url', '').strip() or None
@@ -1526,6 +1687,18 @@ def project_delete(project_id):
     db.session.commit()
     flash('Project deleted.', 'success')
     return redirect(url_for('projects_list'))
+
+
+# ---------- Error pages ----------
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html', code=404), 404
+
+
+@app.errorhandler(403)
+def forbidden(e):
+    return render_template('404.html', code=403), 403
 
 
 if __name__ == '__main__':

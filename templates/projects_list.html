@@ -93,7 +93,7 @@
                         <span class="{{ badge }} text-xs font-medium px-2 py-1 rounded">{{ p.status|replace('_',' ')|capitalize }}</span>
                     </td>
                     <td class="px-3 py-2 text-xs">
-                        {% if p.assigned_developer %}{{ p.assigned_developer.fname }} {{ p.assigned_developer.lname }}{% else %}—{% endif %}
+                        {% if p.assigned_developer and (current_user.is_super_admin or not p.assigned_developer.is_super_admin) %}{{ p.assigned_developer.fname }} {{ p.assigned_developer.lname }}{% else %}—{% endif %}
                     </td>
                     <td class="px-3 py-2 text-xs">
                         {% if p.start_date %}{{ p.start_date.strftime('%b %d, %Y').replace(' 0', ' ') }}{% else %}—{% endif %}
