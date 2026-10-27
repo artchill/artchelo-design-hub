@@ -1,0 +1,13 @@
+{# Edit indicator + history link for one attendance record. Expects `att`. #}
+{% if att.edit_visible_to(current_user) %}
+{% set editor = att.edited_by %}
+<span class="inline-flex items-center gap-1 ml-1">
+    <span class="text-amber-600" title="This record was edited">✏️</span>
+    <button type="button" data-edit-history
+            data-editor="{{ editor.full_name if editor else 'Unknown' }}"
+            data-role="{{ editor.role|replace('-', ' ')|title if editor else 'Unknown' }}"
+            data-date="{{ att.edited_at.strftime('%B %d, %Y').replace(' 0', ' ') }}"
+            data-time="{{ att.edited_at.strftime('%I:%M %p').lstrip('0') }}"
+            class="text-xs text-blue-600 hover:underline cursor-pointer">History</button>
+</span>
+{% endif %}

@@ -144,6 +144,38 @@ function showToast(message, type) {
     {% endfor %}
 {% endwith %}
 
+// --- Attendance edit history modal ---
+function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s == null ? '' : String(s);
+    return div.innerHTML;
+}
+
+function showEditHistory(editorName, editorRole, editDate, editTime) {
+    Swal.fire({
+        title: 'Edit History',
+        html: `
+            <div style="text-align:left; padding: 10px 0;">
+                <p style="margin-bottom: 8px;"><strong>Last edited by:</strong> ${escapeHtml(editorName)}</p>
+                <p style="margin-bottom: 8px;"><strong>Role:</strong> ${escapeHtml(editorRole)}</p>
+                <p style="margin-bottom: 8px;"><strong>Date:</strong> ${escapeHtml(editDate)}</p>
+                <p><strong>Time:</strong> ${escapeHtml(editTime)}</p>
+            </div>
+        `,
+        icon: 'info',
+        confirmButtonColor: '#2563eb',
+        confirmButtonText: 'Close'
+    });
+}
+
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-edit-history]');
+    if (btn) {
+        const d = btn.dataset;
+        showEditHistory(d.editor, d.role, d.date, d.time);
+    }
+});
+
 // --- SweetAlert2 confirm wrapper for forms with data-confirm attribute ---
 document.addEventListener('submit', function(e) {
     const form = e.target;

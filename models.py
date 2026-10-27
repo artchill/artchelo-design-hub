@@ -95,6 +95,15 @@ class Attendance(db.Model):
 
     edited_by = db.relationship('User', foreign_keys=[edited_by_id])
 
+    def edit_visible_to(self, viewer):
+        """Whether `viewer` may see that this record was edited.
+        Super-admin edits (and edits with no recorded editor) are shown only to super-admins."""
+        if not self.edited_at:
+            return False
+        if viewer.is_super_admin:
+            return True
+        return self.edited_by is not None and not self.edited_by.is_super_admin
+
 
 class LeaveDay(db.Model):
     __tablename__ = 'leave_days'

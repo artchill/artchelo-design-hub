@@ -3,7 +3,7 @@
 {% block content %}
 <div class="flex items-center justify-between mb-6">
     <h1 class="text-2xl font-bold text-slate-800">Edit Attendance Record</h1>
-    <a href="{{ url_for('admin_dashboard') }}"
+    <a href="{{ back_url }}"
        class="text-sm text-slate-600 hover:text-slate-800">← Back to Attendance</a>
 </div>
 
@@ -12,7 +12,7 @@
         <p><strong>Employee:</strong> {{ record.user.fname }} {{ record.user.lname }}
            ({{ record.user.username }})</p>
         <p><strong>Record ID:</strong> #{{ record.id }}</p>
-        {% if record.edited_at %}
+        {% if record.edit_visible_to(current_user) %}
         <p class="mt-2 text-amber-700">
             ⚠️ Last edited on
             {{ record.edited_at.strftime('%B %d, %Y at %I:%M%p').replace(' 0', ' ') }}
@@ -81,7 +81,7 @@
                     class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium">
                 Save Changes
             </button>
-            <a href="{{ url_for('admin_dashboard') }}"
+            <a href="{{ back_url }}"
                class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded font-medium">
                 Cancel
             </a>

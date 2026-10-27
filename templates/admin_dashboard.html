@@ -34,12 +34,10 @@
                     <td class="px-3 py-2">{{ att.total_hours if att.total_hours is not none else '-' }}</td>
                     <td class="px-3 py-2 max-w-md">
                     {{ att.task_report or '-' }}
-                    {% if att.edited_at %}
-                        <span class="ml-1 text-xs text-amber-600" title="Edited on {{ att.edited_at.strftime('%B %d, %Y').replace(' 0', ' ') }}">✏️</span>
-                    {% endif %}
+                    {% include '_edit_marker.html' %}
                 </td>
                 <td class="px-3 py-2">
-                    {% if current_user.is_super_admin %}
+                    {% if current_user.is_admin_or_above %}
                     <a href="{{ url_for('admin_edit_attendance', record_id=att.id) }}"
                     class="text-blue-600 hover:text-blue-800 text-sm font-medium">Edit</a>
                     {% endif %}

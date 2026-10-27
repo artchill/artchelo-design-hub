@@ -881,11 +881,15 @@ def admin_edit_employee(user_id):
 
 
 @app.route('/admin/attendance/<int:record_id>/edit', methods=['GET', 'POST'])
-@role_required('super-admin')
+@role_required('admin')
 def admin_edit_attendance(record_id):
     record = Attendance.query.get_or_404(record_id)
     if record.user.is_super_admin:
         abort(404)
+    # Cancel/Back return to the month the user came from (falls back to the record's month)
+    back_url = url_for('admin_employee_tracker', employee_id=record.user_id,
+                       year=request.args.get('year', type=int) or record.datetime_in.year,
+                       month=request.args.get('month', type=int) or record.datetime_in.month)
     if request.method == 'POST':
         date_str = request.form.get('date', '').strip()
         time_in_str = request.form.get('time_in', '').strip()
@@ -913,7 +917,7 @@ def admin_edit_attendance(record_id):
         if errors:
             for e in errors:
                 flash(e, 'error')
-            return render_template('admin_edit_attendance.html', record=record)
+            return render_template('admin_edit_attendance.html', record=record, back_url=back_url)
         record.datetime_in = new_datetime_in
         record.day = new_datetime_in.strftime('%A')
         if new_datetime_out:
@@ -928,9 +932,9 @@ def admin_edit_attendance(record_id):
         record.edited_by_id = current_user.id
         db.session.commit()
         flash('Attendance record updated successfully.', 'success')
-        return redirect(url_for('admin_employee_tracker',
-                                employee_id=record.user_id))
-    return render_template('admin_edit_attendance.html', record=record)
+        return redirect(url_for('admin_employee_tracker', employee_id=record.user_id,
+                                year=record.datetime_in.year, month=record.datetime_in.month))
+    return render_template('admin_edit_attendance.html', record=record, back_url=back_url)
 
 
 @app.route('/admin/employees/<int:employee_id>/attendance/add', methods=['GET', 'POST'])
