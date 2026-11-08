@@ -91,6 +91,19 @@
                         </form>
                         {% endif %}
                     </div>
+                {% elif not current_user.is_admin_or_above %}
+                    {# Employees can't mark or remove leave directly — they go through Request Leave.
+                       Only today/future days get the link (past dates can't be requested). #}
+                    {% if day.status in ('absent', 'no_work', 'future') and today and day.date >= today %}
+                        <a href="{{ url_for('leave_request', date=day.date.isoformat()) }}"
+                           class="bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1 rounded font-medium inline-flex items-center gap-1 whitespace-nowrap">
+                            <i class="fa-solid fa-paper-plane"></i> Request Leave
+                        </a>
+                    {% elif day.status in ('vl', 'sl') %}
+                        <span class="text-slate-400" title="Contact your admin to change this leave">—</span>
+                    {% else %}
+                        —
+                    {% endif %}
                 {% elif day.status in ('vl', 'sl') and not day.is_future %}
                     <form method="POST" action="{{ url_for('delete_leave', leave_id=day.leave.id) }}" class="inline"
                           onsubmit="return confirm('Remove this {{ day.status|upper }} entry?');">
@@ -102,7 +115,7 @@
                         <button type="submit" class="text-red-600 hover:text-red-800">Remove</button>
                     </form>
                 {% elif day.status in ('absent', 'no_work') and not day.is_future and leave_balance and leave_balance.is_at_cap and not current_user.is_super_admin %}
-                    {# Yearly leave cap reached: VL/SL disabled for admins and employees #}
+                    {# Yearly leave cap reached: VL/SL disabled for admins (employees never reach here) #}
                     <div class="flex gap-1 items-center">
                         <span class="bg-slate-100 text-slate-400 px-2 py-1 rounded font-medium cursor-not-allowed"
                               title="Leave cap reached ({{ leave_balance.total_used }}/{{ leave_balance.cap }})">VL</span>

@@ -1,0 +1,231 @@
+{% extends 'base.html' %}
+{% block title %}Leave Requests - Admin{% endblock %}
+
+{# Reason-required action button (Reject / Void): opens a SweetAlert prompt, then POSTs admin_note #}
+{% macro reason_button(url, req, verb, color, icon, classes) -%}
+<button type="button" data-reason-url="{{ url }}" data-name="{{ req.user.full_name }}"
+        data-verb="{{ verb }}" data-color="{{ color }}" class="{{ classes }}">
+    <i class="fa-solid {{ icon }}"></i> {{ verb }}
+</button>
+{%- endmacro %}
+
+{% macro delete_form(req, classes, label) -%}
+<form method="POST" action="{{ url_for('delete_leave_request', request_id=req.id) }}" class="inline"
+      data-confirm="Permanently DELETE this request from {{ req.user.full_name }}?{% if req.status == 'approved' %} Its leave days will also be removed from attendance.{% endif %} This cannot be undone."
+      data-confirm-title="Delete Request"
+      data-confirm-icon="warning"
+      data-confirm-button="Yes, delete">
+    <button type="submit" class="{{ classes }}" title="Delete permanently"><i class="fa-solid fa-trash"></i>{{ label }}</button>
+</form>
+{%- endmacro %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <h1 class="text-3xl font-bold text-slate-800 mb-1">Leave Requests</h1>
+    <p class="text-slate-500 mb-6">Review and approve pending leave requests from your team.</p>
+
+    <!-- Pending -->
+    <section class="mb-10">
+        <div class="flex items-center gap-3 mb-4">
+            <h2 class="text-xl font-semibold text-slate-800">Pending</h2>
+            <span class="bg-amber-100 text-amber-700 px-2 py-1 rounded-full text-xs font-semibold">{{ pending|length }}</span>
+        </div>
+
+        {% if pending %}
+        <div class="space-y-3">
+        {% for req in pending %}
+            {% set checks = previews[req.id] %}
+            {% set exceeds = checks | selectattr('exceeds') | list %}
+            {% set own = req.user_id == current_user.id and not current_user.is_super_admin %}
+            <div class="bg-white border {% if exceeds %}border-red-200{% else %}border-slate-200{% endif %} rounded-2xl p-5 shadow-sm">
+                <div class="flex items-start justify-between gap-4 mb-3">
+                    <div class="flex items-center gap-3">
+                        {% if req.user.avatar_url %}
+                            <img src="{{ req.user.avatar_url }}" alt="" class="w-10 h-10 rounded-full object-cover">
+                        {% else %}
+                            <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-semibold text-slate-600">{{ req.user.initials }}</div>
+                        {% endif %}
+                        <div>
+                            <p class="font-semibold text-slate-800">{{ req.user.full_name }}</p>
+                            <p class="text-xs text-slate-500">Submitted {{ req.created_at.strftime('%b %d, %Y at %I:%M %p') }}</p>
+                        </div>
+                    </div>
+                    <span class="uppercase font-bold text-sm px-3 py-1 rounded-full {% if req.leave_type == 'vl' %}bg-purple-100 text-purple-700{% else %}bg-amber-100 text-amber-700{% endif %}">{{ req.leave_type }}</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
+                    <div>
+                        <p class="text-xs text-slate-500">Dates</p>
+                        <p class="text-sm font-medium">{{ req.date_range_label }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500">Days</p>
+                        <p class="text-sm font-medium">
+                            {{ req.day_count }}
+                            {% set adding = checks | sum(attribute='adding') %}
+                            {% if adding != req.day_count %}
+                                <span class="text-xs text-slate-500">({{ adding }} new — rest already leave/attendance)</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500">Balance After Approval</p>
+                        {% for c in checks %}
+                        <p class="text-sm font-medium">
+                            {{ c.after }} / {{ c.cap }}{% if checks|length > 1 %} <span class="text-xs text-slate-500">({{ c.year }})</span>{% endif %}
+                            {% if c.exceeds %}<span class="text-red-600 text-xs font-semibold">(exceeds cap)</span>{% endif %}
+                        </p>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <p class="text-xs text-slate-500">Reason</p>
+                    <p class="text-sm text-slate-700 bg-slate-50 rounded p-2 mt-1 whitespace-pre-line">{{ req.reason }}</p>
+                    {% if req.admin_note %}
+                    <p class="text-xs text-slate-500 mt-2 whitespace-pre-line"><i class="fa-solid fa-comment text-slate-400"></i> {{ req.admin_note }}</p>
+                    {% endif %}
+                </div>
+
+                {% if own %}
+                    <p class="text-xs text-slate-500 italic"><i class="fa-solid fa-circle-info"></i> This is your own request — another admin or a super-admin must review it.</p>
+                {% else %}
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        {% if exceeds and not current_user.is_super_admin %}
+                            <span class="flex-1 text-center bg-slate-100 text-slate-400 px-4 py-2 rounded-lg font-medium text-sm cursor-not-allowed"
+                                  title="Exceeds the yearly cap — super-admin override required">
+                                <i class="fa-solid fa-lock"></i> Approve (super-admin only)
+                            </span>
+                        {% else %}
+                            <form method="POST" action="{{ url_for('approve_leave_request', request_id=req.id) }}"
+                                  class="flex-1"
+                                  {% if exceeds %}
+                                  data-confirm="This exceeds {{ req.user.full_name }}'s yearly cap ({{ exceeds[0].after }}/{{ exceeds[0].cap }}). Approve anyway as super-admin override?"
+                                  data-confirm-title="Override Leave Cap"
+                                  data-confirm-button="Yes, override"
+                                  {% else %}
+                                  data-confirm="Approve this leave request for {{ req.user.full_name }}? ({{ req.day_count }} day(s))"
+                                  data-confirm-title="Approve Leave"
+                                  data-confirm-icon="question"
+                                  data-confirm-button="Yes, approve"
+                                  {% endif %}>
+                                <input type="hidden" name="admin_note" value="">
+                                <button type="submit"
+                                        class="w-full {% if exceeds %}bg-purple-600 hover:bg-purple-700{% else %}bg-green-600 hover:bg-green-700{% endif %} text-white px-4 py-2 rounded-lg font-medium text-sm">
+                                    <i class="fa-solid fa-check"></i> {% if exceeds %}Approve (override){% else %}Approve{% endif %}
+                                </button>
+                            </form>
+                        {% endif %}
+                        {{ reason_button(url_for('reject_leave_request', request_id=req.id), req, 'Reject', '#dc2626', 'fa-xmark',
+                                         'flex-1 bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg font-medium text-sm') }}
+                        {% if current_user.is_super_admin %}
+                            <a href="{{ url_for('edit_leave_request', request_id=req.id) }}" title="Edit request"
+                               class="text-center bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-2 rounded-lg font-medium text-sm">
+                                <i class="fa-solid fa-pen"></i>
+                            </a>
+                            {{ delete_form(req, 'w-full bg-red-100 hover:bg-red-200 text-red-700 px-3 py-2 rounded-lg font-medium text-sm', '') }}
+                        {% else %}
+                            {{ reason_button(url_for('void_leave_request', request_id=req.id), req, 'Void', '#ea580c', 'fa-ban',
+                                             'bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-2 rounded-lg font-medium text-sm') }}
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        </div>
+        {% else %}
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-center text-slate-400">No pending requests. 🎉</div>
+        {% endif %}
+    </section>
+
+    <!-- Recent decisions -->
+    {% if recent %}
+    <section>
+        <h2 class="text-xl font-semibold text-slate-800 mb-4">Recent Decisions</h2>
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+            <table class="w-full min-w-[820px]">
+                <thead class="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Employee</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Type</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Dates</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Status</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">By</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">When</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in recent %}
+                    <tr class="border-b border-slate-100 align-top">
+                        <td class="px-4 py-3 text-sm">{{ req.user.full_name }}</td>
+                        <td class="px-4 py-3 text-sm uppercase">{{ req.leave_type }}</td>
+                        <td class="px-4 py-3 text-sm whitespace-nowrap">{{ req.date_range_label }}</td>
+                        <td class="px-4 py-3">
+                            <span class="{{ req.status_badge_class }} px-2 py-1 rounded-full text-xs font-semibold uppercase">{{ req.status }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-sm">{{ req.approver.full_name if req.approver else '—' }}</td>
+                        <td class="px-4 py-3 text-sm whitespace-nowrap">{{ req.approved_at.strftime('%b %d') if req.approved_at else '—' }}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-3 whitespace-nowrap">
+                                <button type="button" data-leave-details='{{ req.details()|tojson }}'
+                                        class="text-blue-600 hover:underline text-xs">
+                                    <i class="fa-solid fa-eye"></i> View
+                                </button>
+                                {% if current_user.is_super_admin %}
+                                    {% if req.status != 'voided' %}
+                                    <a href="{{ url_for('edit_leave_request', request_id=req.id) }}" class="text-blue-600 hover:underline text-xs">
+                                        <i class="fa-solid fa-pen"></i> Edit
+                                    </a>
+                                    {% endif %}
+                                    {{ delete_form(req, 'text-red-600 hover:underline text-xs', ' Delete') }}
+                                {% elif req.status != 'voided' %}
+                                    {{ reason_button(url_for('void_leave_request', request_id=req.id), req, 'Void', '#ea580c', 'fa-ban',
+                                                     'text-orange-600 hover:underline text-xs') }}
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+
+<script>
+// Reject / Void: SweetAlert prompt for a required reason, then POST it as admin_note.
+document.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-reason-url]');
+    if (!btn) return;
+    const verb = btn.dataset.verb;
+    const voiding = verb === 'Void';
+    Swal.fire({
+        title: verb + ' Leave Request',
+        html: '<p style="margin-bottom:0.75rem">' + (voiding ? 'Voiding' : 'Rejecting') +
+              ' request for <strong>' + escapeHtml(btn.dataset.name) + '</strong>.</p>' +
+              (voiding ? '<p style="font-size:0.85em;color:#64748b">If it was approved, its leave days will be removed from attendance.</p>' : ''),
+        input: 'textarea',
+        inputPlaceholder: 'Reason for ' + (voiding ? 'voiding' : 'rejection') + ' (required)...',
+        showCancelButton: true,
+        confirmButtonText: verb,
+        confirmButtonColor: btn.dataset.color,
+        cancelButtonColor: '#64748b',
+        inputValidator: (v) => (!v || !v.trim()) ? 'Please provide a reason.' : undefined,
+    }).then(function (result) {
+        if (!result.isConfirmed) return;
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = btn.dataset.reasonUrl;
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'admin_note';
+        input.value = result.value.trim();
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+    });
+});
+</script>
+{% endblock %}

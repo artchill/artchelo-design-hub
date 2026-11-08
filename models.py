@@ -114,12 +114,74 @@ class LeaveDay(db.Model):
     note = db.Column(db.Text, nullable=True)
     marked_at = db.Column(db.DateTime, default=datetime.utcnow)
     marked_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    # Set when the day was created by approving a LeaveRequest; NULL for direct admin marks
+    request_id = db.Column(db.Integer, db.ForeignKey('leave_requests.id'), nullable=True)
 
     marked_by = db.relationship('User', foreign_keys=[marked_by_id])
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'date', name='unique_user_date_leave'),
     )
+
+
+class LeaveRequest(db.Model):
+    """An employee's VL/SL request awaiting (or past) admin approval."""
+    __tablename__ = 'leave_requests'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    leave_type = db.Column(db.String(10), nullable=False)        # 'vl' or 'sl'
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)                # == start_date for single-day
+    reason = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending/approved/rejected/cancelled
+    approved_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # approver OR rejecter
+    approved_at = db.Column(db.DateTime, nullable=True)          # decision time (approve or reject)
+    admin_note = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref='leave_requests')
+    approver = db.relationship('User', foreign_keys=[approved_by_id])
+
+    @property
+    def day_count(self):
+        """Number of calendar days this request spans (inclusive)."""
+        return (self.end_date - self.start_date).days + 1
+
+    @property
+    def is_pending(self):
+        return self.status == 'pending'
+
+    @property
+    def status_badge_class(self):
+        return {
+            'pending': 'bg-amber-100 text-amber-700',
+            'approved': 'bg-green-100 text-green-700',
+            'rejected': 'bg-red-100 text-red-700',
+            'cancelled': 'bg-slate-100 text-slate-500',
+            'voided': 'bg-orange-100 text-orange-700',
+        }.get(self.status, 'bg-slate-100 text-slate-500')
+
+    def details(self):
+        """Payload for the View modal (showLeaveDetails in base.html)."""
+        return {
+            'employee': self.user.full_name,
+            'type': self.leave_type.upper(),
+            'dates': self.date_range_label,
+            'days': str(self.day_count),
+            'status': self.status,
+            'reason': self.reason,
+            'admin_note': self.admin_note or '',
+            'approver': self.approver.full_name if self.approver else '',
+            'approved_at': self.approved_at.strftime('%b %d, %Y %I:%M %p') if self.approved_at else '',
+        }
+
+    @property
+    def date_range_label(self):
+        if self.start_date == self.end_date:
+            return self.start_date.strftime('%b %d, %Y')
+        if self.start_date.year == self.end_date.year:
+            return f"{self.start_date.strftime('%b %d')} – {self.end_date.strftime('%b %d, %Y')}"
+        return f"{self.start_date.strftime('%b %d, %Y')} – {self.end_date.strftime('%b %d, %Y')}"
 
 
 # ========== Clients & Sales ==========

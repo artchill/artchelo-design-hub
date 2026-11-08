@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}My Leaves{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-800">My Leave Requests</h1>
+            <p class="text-slate-500">Track your submitted requests and their status.</p>
+        </div>
+        <a href="{{ url_for('leave_request') }}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium">
+            <i class="fa-solid fa-plus"></i> Request Leave
+        </a>
+    </div>
+
+    <!-- Balance -->
+    <div class="bg-gradient-to-br from-blue-50 to-purple-50 border border-slate-200 rounded-2xl p-5 mb-6">
+        <p class="text-sm text-slate-600 mb-1">Leave Balance — {{ balance.year }}</p>
+        <p class="text-3xl font-bold text-slate-800">{{ balance.remaining }} / {{ balance.cap }} days remaining</p>
+        <p class="text-xs text-slate-500 mt-1">VL used: {{ balance.vl_used }} · SL used: {{ balance.sl_used }}</p>
+    </div>
+
+    <!-- Requests -->
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+        <table class="w-full min-w-[720px]">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Submitted</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Type</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Dates</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Days</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Reason</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Status</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for req in requests %}
+                <tr class="border-b border-slate-100 align-top">
+                    <td class="px-4 py-3 text-sm whitespace-nowrap">{{ req.created_at.strftime('%b %d, %Y') }}</td>
+                    <td class="px-4 py-3 text-sm">
+                        <span class="uppercase font-semibold px-2 py-0.5 rounded {% if req.leave_type == 'vl' %}bg-purple-100 text-purple-700{% else %}bg-amber-100 text-amber-700{% endif %}">{{ req.leave_type }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-sm whitespace-nowrap">{{ req.date_range_label }}</td>
+                    <td class="px-4 py-3 text-sm">{{ req.day_count }}</td>
+                    <td class="px-4 py-3 text-sm max-w-xs truncate" title="{{ req.reason }}">{{ req.reason }}</td>
+                    <td class="px-4 py-3">
+                        <span class="{{ req.status_badge_class }} px-2 py-1 rounded-full text-xs font-semibold uppercase">{{ req.status }}</span>
+                        {% if req.admin_note %}
+                            <p class="text-xs text-slate-500 mt-1"><i class="fa-solid fa-comment text-slate-400"></i> {{ req.admin_note }}</p>
+                        {% endif %}
+                        {% if req.approver and req.status in ('approved', 'rejected') %}
+                            <p class="text-xs text-slate-400 mt-0.5">by {{ req.approver.fname }}{% if req.approved_at %} · {{ req.approved_at.strftime('%b %d') }}{% endif %}</p>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-sm">
+                        <div class="flex items-center gap-3 whitespace-nowrap">
+                            <button type="button" data-leave-details='{{ req.details()|tojson }}'
+                                    class="text-blue-600 hover:underline text-xs">
+                                <i class="fa-solid fa-eye"></i> View
+                            </button>
+                            {% if req.is_pending %}
+                                <form method="POST" action="{{ url_for('cancel_leave_request', request_id=req.id) }}"
+                                      class="inline"
+                                      data-confirm="Cancel this leave request ({{ req.date_range_label }})?"
+                                      data-confirm-title="Cancel Request"
+                                      data-confirm-button="Yes, cancel">
+                                    <button type="submit" class="text-red-600 hover:underline text-xs">Cancel</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">No leave requests yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

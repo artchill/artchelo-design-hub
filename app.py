@@ -19,7 +19,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Border, Font, PatternFill, Side
 from sqlalchemy import extract, func
 from models import (
-    db, User, Attendance, LeaveDay,
+    db, User, Attendance, LeaveDay, LeaveRequest,
     Client, SalesLead, SalesInvoice,
     Project, DomainRenewal, ProjectStatusHistory,
 )
@@ -218,6 +218,79 @@ def get_leave_balance(user_id, year=None):
     }
 
 
+app.jinja_env.globals['get_balance'] = get_leave_balance
+
+
+def leave_request_new_dates(req):
+    """Dates in the request's range that approval would actually turn into LeaveDays:
+    skips days that already have a LeaveDay or recorded attendance."""
+    dates = []
+    for i in range(req.day_count):
+        d = req.start_date + timedelta(days=i)
+        if LeaveDay.query.filter_by(user_id=req.user_id, date=d).first():
+            continue
+        if Attendance.query.filter(
+            Attendance.user_id == req.user_id,
+            Attendance.datetime_in >= datetime.combine(d, datetime.min.time()),
+            Attendance.datetime_in <= datetime.combine(d, datetime.max.time()),
+        ).first():
+            continue
+        dates.append(d)
+    return dates
+
+
+def leave_request_cap_check(req, new_dates=None):
+    """Per-year cap projection for approving `req`. Returns a list of
+    {'year', 'used', 'adding', 'after', 'cap', 'exceeds'} (one per calendar year touched)."""
+    if new_dates is None:
+        new_dates = leave_request_new_dates(req)
+    adding_by_year = {}
+    for d in new_dates:
+        adding_by_year[d.year] = adding_by_year.get(d.year, 0) + 1
+    if not adding_by_year:
+        adding_by_year[req.start_date.year] = 0
+    out = []
+    for year, adding in sorted(adding_by_year.items()):
+        bal = get_leave_balance(req.user_id, year)
+        after = bal['total_used'] + adding
+        out.append({'year': year, 'used': bal['total_used'], 'adding': adding,
+                    'after': after, 'cap': bal['cap'], 'exceeds': after > bal['cap']})
+    return out
+
+
+def prepend_admin_note(req, text):
+    """Add `text` to the top of req.admin_note, keeping earlier notes (edit/void/decision trail)."""
+    text = (text or '').strip()
+    if text:
+        req.admin_note = f'{text}\n\n{req.admin_note}' if req.admin_note else text
+
+
+def visible_leave_requests_query():
+    """LeaveRequest query with super-admins' requests hidden from non-super-admin viewers."""
+    query = LeaveRequest.query
+    if not current_user.is_super_admin:
+        query = query.join(User, LeaveRequest.user_id == User.id).filter(User.role != 'super-admin')
+    return query
+
+
+@app.context_processor
+def inject_leave_counts():
+    """Sidebar badges: pending requests (admins) and recent decisions (employees)."""
+    pending, unseen = 0, 0
+    if current_user.is_authenticated:
+        if current_user.is_admin_or_above:
+            pending = visible_leave_requests_query().filter(LeaveRequest.status == 'pending').count()
+        if current_user.role == 'employee':
+            # No "seen" tracking in the schema: counts decisions from the last 7 days
+            week_ago = datetime.now() - timedelta(days=7)
+            unseen = LeaveRequest.query.filter(
+                LeaveRequest.user_id == current_user.id,
+                LeaveRequest.status.in_(('approved', 'rejected', 'voided')),
+                LeaveRequest.approved_at >= week_ago,
+            ).count()
+    return {'pending_leave_count': pending, 'employee_unseen_decisions': unseen}
+
+
 def build_month_calendar(user_id, year, month):
     days_in_month = monthrange(year, month)[1]
     today = date.today()
@@ -360,8 +433,10 @@ def employee_dashboard():
 
     return render_template(
         'employee_dashboard.html',
-        open_session=open_session, calendar=calendar,
+        open_session=open_session, calendar=calendar, today=today,
         leave_balance=get_leave_balance(current_user.id, year),
+        recent_leave_requests=(LeaveRequest.query.filter_by(user_id=current_user.id)
+                               .order_by(LeaveRequest.created_at.desc()).limit(3).all()),
         year=year, month=month, month_name=month_name[month],
         available_years=range(today.year - 2, today.year + 2),
     )
@@ -415,6 +490,10 @@ def time_out():
 @app.route('/leave/mark', methods=['POST'])
 @login_required
 def mark_leave():
+    # Direct marking is the admin/emergency path only; employees use the request workflow
+    if not current_user.is_admin_or_above:
+        flash('Employees cannot mark leave directly. Please submit a leave request instead.', 'error')
+        return redirect(url_for('leave_request'))
     target_user_id = int(request.form.get('user_id', current_user.id))
     date_str = request.form.get('date', '').strip()
     leave_type = request.form.get('leave_type', '').strip().upper()
@@ -481,10 +560,10 @@ def mark_leave():
 @app.route('/leave/<int:leave_id>/delete', methods=['POST'])
 @login_required
 def delete_leave(leave_id):
+    if not current_user.is_admin_or_above:
+        flash('Employees cannot remove leave records. Please contact your admin.', 'error')
+        return redirect(url_for('my_leave_requests'))
     leave = LeaveDay.query.get_or_404(leave_id)
-    if not current_user.is_admin_or_above and leave.user_id != current_user.id:
-        flash('Not allowed.', 'error')
-        return redirect(url_for('employee_dashboard'))
     get_visible_user_or_404(leave.user_id)
     redirect_to = request.form.get('redirect_to', 'employee_dashboard')
     redirect_kwargs = {}
@@ -496,6 +575,325 @@ def delete_leave(leave_id):
     db.session.commit()
     flash('Leave entry removed.', 'success')
     return redirect(url_for(redirect_to, **redirect_kwargs))
+
+
+# ---------- Leave requests (Phase L-3) ----------
+
+@app.route('/leaves/request', methods=['GET', 'POST'])
+@login_required
+def leave_request():
+    """Any logged-in user can request leave for themselves; admins approve."""
+    if request.method == 'GET':
+        # Optional ?date=YYYY-MM-DD pre-fill (from the tracker's "Request Leave" links)
+        prefill = {}
+        try:
+            d = datetime.strptime(request.args.get('date', '').strip(), '%Y-%m-%d').date()
+            if d >= date.today():
+                prefill = {'start_date': d.isoformat(), 'end_date': d.isoformat()}
+        except ValueError:
+            pass
+        return render_template('leave_request_form.html',
+                               balance=get_leave_balance(current_user.id), form=prefill,
+                               today=date.today())
+
+    form = request.form
+    leave_type = form.get('leave_type', '').strip().lower()
+    start_str = form.get('start_date', '').strip()
+    end_str = form.get('end_date', '').strip() or start_str
+    reason = form.get('reason', '').strip()
+
+    errors = []
+    if leave_type not in ('vl', 'sl'):
+        errors.append('Leave type must be VL or SL.')
+    if not reason:
+        errors.append('Reason is required.')
+    try:
+        start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
+    except ValueError:
+        start_date = end_date = None
+        errors.append('Please enter a valid start date.')
+
+    balance = get_leave_balance(current_user.id, start_date.year if start_date else None)
+    if start_date:
+        if end_date < start_date:
+            errors.append('End date must be on or after start date.')
+        elif (end_date - start_date).days + 1 > 31:
+            errors.append('A single request can cover at most 31 days.')
+        if start_date < date.today():
+            errors.append('Cannot request leave for past dates.')
+
+    if not errors:
+        conflicts = []
+        for i in range((end_date - start_date).days + 1):
+            d = start_date + timedelta(days=i)
+            has_leave = LeaveDay.query.filter_by(user_id=current_user.id, date=d).first()
+            has_pending = LeaveRequest.query.filter(
+                LeaveRequest.user_id == current_user.id,
+                LeaveRequest.status == 'pending',
+                LeaveRequest.start_date <= d,
+                LeaveRequest.end_date >= d,
+            ).first()
+            if has_leave or has_pending:
+                conflicts.append(d.strftime('%b %d'))
+        if conflicts:
+            errors.append(f'Leave already exists or is pending for: {", ".join(conflicts)}')
+
+    if errors:
+        for e in errors:
+            flash(e, 'error')
+        return render_template('leave_request_form.html', balance=balance, form=form,
+                               today=date.today())
+
+    new_request = LeaveRequest(
+        user_id=current_user.id, leave_type=leave_type,
+        start_date=start_date, end_date=end_date,
+        reason=reason, status='pending',
+    )
+    db.session.add(new_request)
+    db.session.commit()
+
+    # Cap is only a warning at request time; it's enforced at approval
+    projected = balance['total_used'] + new_request.day_count
+    if projected > balance['cap']:
+        flash(f'Leave request submitted. Note: this would exceed your yearly cap '
+              f'({projected}/{balance["cap"]}), so it needs super-admin approval.', 'warning')
+    else:
+        flash('Leave request submitted. Awaiting admin approval.', 'success')
+    return redirect(url_for('my_leave_requests'))
+
+
+@app.route('/leaves/my-requests')
+@login_required
+def my_leave_requests():
+    reqs = (LeaveRequest.query.filter_by(user_id=current_user.id)
+            .order_by(LeaveRequest.created_at.desc()).all())
+    return render_template('my_leave_requests.html', requests=reqs,
+                           balance=get_leave_balance(current_user.id))
+
+
+@app.route('/leaves/<int:request_id>/cancel', methods=['POST'])
+@login_required
+def cancel_leave_request(request_id):
+    req = LeaveRequest.query.get_or_404(request_id)
+    if req.user_id != current_user.id:
+        abort(403)
+    back = safe_referrer(url_for('my_leave_requests'))
+    if req.status != 'pending':
+        flash('Only pending requests can be cancelled.', 'error')
+        return redirect(back)
+    req.status = 'cancelled'
+    db.session.commit()
+    flash('Leave request cancelled.', 'success')
+    return redirect(back)
+
+
+@app.route('/leaves/pending')
+@role_required('admin')
+def pending_leave_requests():
+    pending = (visible_leave_requests_query()
+               .filter(LeaveRequest.status == 'pending')
+               .order_by(LeaveRequest.created_at.asc()).all())
+    previews = {r.id: leave_request_cap_check(r) for r in pending}
+    recent = (visible_leave_requests_query()
+              .filter(LeaveRequest.status.in_(('approved', 'rejected', 'voided')))
+              .order_by(LeaveRequest.approved_at.desc()).limit(20).all())
+    return render_template('pending_leave_requests.html',
+                           pending=pending, previews=previews, recent=recent)
+
+
+def _load_decidable_request(request_id, verb):
+    """Shared guards for approve/reject. Returns (req, None) or (None, redirect_response)."""
+    req = LeaveRequest.query.get_or_404(request_id)
+    get_visible_user_or_404(req.user_id)   # admins can't act on super-admin requests
+    back = redirect(url_for('pending_leave_requests'))
+    if req.status != 'pending':
+        flash(f'Only pending requests can be {verb}.', 'error')
+        return None, back
+    if req.user_id == current_user.id and not current_user.is_super_admin:
+        flash(f'You can’t decide your own leave request — another admin must review it.', 'error')
+        return None, back
+    return req, None
+
+
+@app.route('/leaves/<int:request_id>/approve', methods=['POST'])
+@role_required('admin')
+def approve_leave_request(request_id):
+    req, resp = _load_decidable_request(request_id, 'approved')
+    if resp:
+        return resp
+
+    new_dates = leave_request_new_dates(req)
+    over = [c for c in leave_request_cap_check(req, new_dates) if c['exceeds']]
+    if over and not current_user.is_super_admin:
+        c = over[0]
+        flash(f'Approval blocked: would exceed {req.user.full_name}’s {c["year"]} cap '
+              f'({c["after"]}/{c["cap"]}). Super-admin override required.', 'error')
+        return redirect(url_for('pending_leave_requests'))
+
+    for d in new_dates:
+        db.session.add(LeaveDay(
+            user_id=req.user_id, date=d,
+            leave_type=req.leave_type.upper(),   # LeaveDay stores 'VL'/'SL' (matches mark_leave)
+            note=req.reason, marked_by_id=current_user.id, request_id=req.id,
+        ))
+    req.status = 'approved'
+    req.approved_by_id = current_user.id
+    req.approved_at = datetime.now()
+    prepend_admin_note(req, request.form.get('admin_note', ''))   # keeps any [EDITED ...] trail
+    db.session.commit()
+
+    skipped = req.day_count - len(new_dates)
+    msg = f'Approved leave for {req.user.full_name} ({len(new_dates)} day(s) added'
+    msg += f', {skipped} skipped — already leave/attendance).' if skipped else ').'
+    flash(msg, 'success')
+    if over:
+        c = over[0]
+        flash(f'Super-admin override: {req.user.full_name} is now at {c["after"]}/{c["cap"]} for {c["year"]}.', 'warning')
+    return redirect(url_for('pending_leave_requests'))
+
+
+@app.route('/leaves/<int:request_id>/reject', methods=['POST'])
+@role_required('admin')
+def reject_leave_request(request_id):
+    req, resp = _load_decidable_request(request_id, 'rejected')
+    if resp:
+        return resp
+    admin_note = request.form.get('admin_note', '').strip()
+    if not admin_note:
+        flash('Please provide a reason for rejecting this request.', 'error')
+        return redirect(url_for('pending_leave_requests'))
+    req.status = 'rejected'
+    req.approved_by_id = current_user.id
+    req.approved_at = datetime.now()
+    prepend_admin_note(req, admin_note)
+    db.session.commit()
+    flash(f'Rejected leave request from {req.user.full_name}.', 'success')
+    return redirect(url_for('pending_leave_requests'))
+
+
+@app.route('/leaves/<int:request_id>/void', methods=['POST'])
+@role_required('admin')
+def void_leave_request(request_id):
+    """Admin/super-admin: invalidate a request (keeps the record). Approved → its leave days are removed."""
+    req = LeaveRequest.query.get_or_404(request_id)
+    get_visible_user_or_404(req.user_id)   # admins can't touch super-admin requests
+    if req.status in ('voided', 'cancelled'):
+        flash(f'Request is already {req.status}.', 'error')
+        return redirect(url_for('pending_leave_requests'))
+    reason = request.form.get('admin_note', '').strip()
+    if not reason:
+        flash('Please provide a reason for voiding this request.', 'error')
+        return redirect(url_for('pending_leave_requests'))
+
+    removed = 0
+    if req.status == 'approved':
+        removed = LeaveDay.query.filter_by(request_id=req.id).delete()
+    prior = f' (was {req.status}' + (f' by {req.approver.full_name}' if req.approver else '') + ')'
+    prepend_admin_note(req, f'[VOIDED by {current_user.full_name}{prior}]: {reason}')
+    req.status = 'voided'
+    req.approved_by_id = current_user.id
+    req.approved_at = datetime.now()
+    db.session.commit()
+
+    msg = f'Voided leave request from {req.user.full_name}.'
+    if removed:
+        msg += f' {removed} leave day(s) removed from attendance.'
+    flash(msg, 'success')
+    return redirect(url_for('pending_leave_requests'))
+
+
+@app.route('/leaves/<int:request_id>/delete', methods=['POST'])
+@role_required('super-admin')
+def delete_leave_request(request_id):
+    """Super-admin only: permanently delete a request and any leave days it created."""
+    req = LeaveRequest.query.get_or_404(request_id)
+    # Always clear linked days so no LeaveDay is left pointing at a deleted request
+    LeaveDay.query.filter_by(request_id=req.id).delete()
+    name = req.user.full_name
+    db.session.delete(req)
+    db.session.commit()
+    flash(f'Permanently deleted leave request from {name}.', 'success')
+    return redirect(url_for('pending_leave_requests'))
+
+
+@app.route('/leaves/<int:request_id>/edit', methods=['GET', 'POST'])
+@role_required('super-admin')
+def edit_leave_request(request_id):
+    """Super-admin only: change type/dates/reason. Approved requests get their leave days rebuilt."""
+    req = LeaveRequest.query.get_or_404(request_id)
+    if req.status in ('voided', 'cancelled'):
+        flash(f'{req.status.capitalize()} requests can’t be edited.', 'error')
+        return redirect(url_for('pending_leave_requests'))
+
+    if request.method == 'GET':
+        form = {'leave_type': req.leave_type, 'start_date': req.start_date.isoformat(),
+                'end_date': req.end_date.isoformat(), 'reason': req.reason}
+        return render_template('edit_leave_request.html', req=req, form=form)
+
+    form = request.form
+    leave_type = form.get('leave_type', '').strip().lower()
+    start_str = form.get('start_date', '').strip()
+    end_str = form.get('end_date', '').strip() or start_str
+    reason = form.get('reason', '').strip()
+
+    errors = []
+    if leave_type not in ('vl', 'sl'):
+        errors.append('Leave type must be VL or SL.')
+    if not reason:
+        errors.append('Reason is required.')
+    try:
+        start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
+        if end_date < start_date:
+            errors.append('End date must be on or after start date.')
+        elif (end_date - start_date).days + 1 > 31:
+            errors.append('A single request can cover at most 31 days.')
+    except ValueError:
+        errors.append('Please enter a valid start date.')
+    if errors:
+        for e in errors:
+            flash(e, 'error')
+        return render_template('edit_leave_request.html', req=req, form=form)
+
+    changed = (leave_type != req.leave_type or start_date != req.start_date
+               or end_date != req.end_date or reason != req.reason)
+    if not changed:
+        flash('No changes to save.', 'info')
+        return redirect(url_for('pending_leave_requests'))
+    needs_rebuild = req.status == 'approved' and (
+        leave_type != req.leave_type or start_date != req.start_date or end_date != req.end_date)
+
+    req.leave_type, req.start_date, req.end_date, req.reason = leave_type, start_date, end_date, reason
+    prepend_admin_note(req, f'[EDITED by {current_user.full_name} on {datetime.now().strftime("%b %d, %Y %I:%M %p")}]')
+
+    added = skipped = 0
+    if needs_rebuild:
+        LeaveDay.query.filter_by(request_id=req.id).delete()
+        new_dates = leave_request_new_dates(req)   # skips days with other leave or attendance
+        for d in new_dates:
+            db.session.add(LeaveDay(
+                user_id=req.user_id, date=d, leave_type=leave_type.upper(),
+                note=reason, marked_by_id=current_user.id, request_id=req.id,
+            ))
+        added, skipped = len(new_dates), req.day_count - len(new_dates)
+    elif req.status == 'approved':
+        # Reason-only edit: keep the linked days' note in sync
+        for ld in LeaveDay.query.filter_by(request_id=req.id).all():
+            ld.note = reason
+    db.session.commit()
+
+    if needs_rebuild:
+        msg = f'Leave request updated. Leave days rebuilt: {added} day(s)'
+        msg += f', {skipped} skipped (already leave/attendance).' if skipped else '.'
+        flash(msg, 'success')
+        for year in sorted({start_date.year, end_date.year}):
+            bal = get_leave_balance(req.user_id, year)
+            if bal['total_used'] > bal['cap']:
+                flash(f'{req.user.full_name} is now at {bal["total_used"]}/{bal["cap"]} for {year} (over cap).', 'warning')
+    else:
+        flash('Leave request updated.', 'success')
+    return redirect(url_for('pending_leave_requests'))
 
 
 # ---------- Admin: Attendance ----------
@@ -524,7 +922,7 @@ def admin_employee_tracker(employee_id):
     all_employees = User.query.filter(User.role != 'super-admin').order_by(User.fname).all()
     return render_template(
         'admin_employee_tracker.html',
-        employee=employee, all_employees=all_employees, calendar=calendar,
+        employee=employee, all_employees=all_employees, calendar=calendar, today=today,
         leave_balance=get_leave_balance(employee.id, year),
         year=year, month=month, month_name=month_name[month],
         available_years=range(today.year - 2, today.year + 2),

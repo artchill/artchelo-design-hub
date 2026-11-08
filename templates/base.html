@@ -48,6 +48,7 @@
         .toast.success { background: #10b981; }
         .toast.error { background: #ef4444; }
         .toast.info { background: #3b82f6; }
+        .toast.warning { background: #d97706; }
         @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
         .toast.closing { animation: slideOut 0.3s ease-in forwards; }
@@ -88,6 +89,17 @@
                     <i class="fa-solid fa-calendar-check w-5 text-center"></i>
                     <span>Leaves</span>
                 </a>
+                <a href="{{ url_for('pending_leave_requests') }}" class="sidebar-link">
+                    <i class="fa-solid fa-inbox w-5 text-center"></i>
+                    <span>Leave Requests</span>
+                    {% if pending_leave_count > 0 %}
+                        <span class="ml-auto bg-red-500 text-white text-xs rounded-full px-2 py-0.5 font-semibold">{{ pending_leave_count }}</span>
+                    {% endif %}
+                </a>
+                <a href="{{ url_for('my_leave_requests') }}" class="sidebar-link">
+                    <i class="fa-solid fa-calendar-plus w-5 text-center"></i>
+                    <span>My Leaves</span>
+                </a>
                 <div class="sidebar-section">Business</div>
                 <a href="{{ url_for('sales_overview') }}" class="sidebar-link">
                     <i class="fa-solid fa-chart-line w-5 text-center"></i>
@@ -114,6 +126,13 @@
                 <a href="{{ url_for('employee_dashboard') }}" class="sidebar-link">
                     <i class="fa-solid fa-user-clock w-5 text-center"></i>
                     <span>My Attendance</span>
+                </a>
+                <a href="{{ url_for('my_leave_requests') }}" class="sidebar-link">
+                    <i class="fa-solid fa-calendar-plus w-5 text-center"></i>
+                    <span>My Leaves</span>
+                    {% if employee_unseen_decisions > 0 %}
+                        <span class="ml-auto bg-blue-500 text-white text-xs rounded-full px-2 py-0.5 font-semibold">{{ employee_unseen_decisions }}</span>
+                    {% endif %}
                 </a>
             {% endif %}
         </nav>
@@ -167,11 +186,11 @@
 <script>
 // --- Toast system ---
 function showToast(message, type) {
-    type = type || 'info';
+    type = ['success', 'error', 'info', 'warning'].indexOf(type) >= 0 ? type : 'info';
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = 'toast ' + type;
-    const icons = { success: '✓', error: '✕', info: 'ℹ' };
+    const icons = { success: '✓', error: '✕', info: 'ℹ', warning: '⚠' };
     toast.innerHTML = '<span style="font-size:1.1rem;font-weight:bold;">' + icons[type] + '</span><span>' + message + '</span>';
     container.appendChild(toast);
     setTimeout(function() {
@@ -210,6 +229,48 @@ function showEditHistory(editorName, editorRole, editDate, editTime) {
         confirmButtonText: 'Close'
     });
 }
+
+// --- Leave request "View" modal ---
+// Buttons carry a data-leave-details attribute holding LeaveRequest.details() as JSON
+// (rendered with the tojson filter inside single quotes, so it's attribute-safe).
+function showLeaveDetails(data) {
+    const safe = (s) => (s === undefined || s === null || s === '') ? '—' : escapeHtml(s);
+    Swal.fire({
+        title: 'Leave Request Details',
+        html: `
+            <div style="text-align:left; padding: 10px 0;">
+                <p style="margin-bottom: 8px;"><strong>Employee:</strong> ${safe(data.employee)}</p>
+                <p style="margin-bottom: 8px;"><strong>Type:</strong> ${safe(data.type)}</p>
+                <p style="margin-bottom: 8px;"><strong>Dates:</strong> ${safe(data.dates)}</p>
+                <p style="margin-bottom: 8px;"><strong>Days:</strong> ${safe(data.days)}</p>
+                <p style="margin-bottom: 8px;"><strong>Status:</strong> <span style="text-transform:uppercase; font-weight:600;">${safe(data.status)}</span></p>
+                <div style="margin-top: 12px; padding: 10px; background: #f8fafc; border-radius: 8px;">
+                    <p style="margin: 0 0 4px; font-weight: 600; color: #475569;">Reason:</p>
+                    <p style="margin: 0; white-space: pre-wrap;">${safe(data.reason)}</p>
+                </div>
+                ${data.admin_note ? `
+                    <div style="margin-top: 10px; padding: 10px; background: #fef3c7; border-radius: 8px;">
+                        <p style="margin: 0 0 4px; font-weight: 600; color: #475569;">Admin Note:</p>
+                        <p style="margin: 0; white-space: pre-wrap;">${safe(data.admin_note)}</p>
+                    </div>` : ''}
+                ${data.approver ? `
+                    <p style="margin-top: 10px; font-size: 0.85em; color: #64748b;">
+                        Decision by ${safe(data.approver)} on ${safe(data.approved_at)}
+                    </p>` : ''}
+            </div>`,
+        icon: 'info',
+        confirmButtonColor: '#2563eb',
+        confirmButtonText: 'Close',
+        width: '500px'
+    });
+}
+
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-leave-details]');
+    if (btn) {
+        try { showLeaveDetails(JSON.parse(btn.dataset.leaveDetails)); } catch (err) { console.error(err); }
+    }
+});
 
 document.addEventListener('click', function(e) {
     const btn = e.target.closest('[data-edit-history]');
