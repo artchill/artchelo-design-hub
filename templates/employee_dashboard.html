@@ -41,7 +41,10 @@
 <!-- Monthly Tracker -->
 <div class="bg-white rounded-lg shadow p-6">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 class="text-lg font-semibold">My Attendance — {{ month_name }} {{ year }}</h2>
+        <div>
+            <h2 class="text-lg font-semibold">My Attendance — {{ month_name }} {{ year }}</h2>
+            <div class="mt-2">{% include '_leave_balance_badge.html' %}</div>
+        </div>
         <form method="GET" class="flex gap-2">
             <select name="month" class="border border-slate-300 rounded px-2 py-1 text-sm">
                 {% for m in range(1, 13) %}

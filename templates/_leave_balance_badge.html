@@ -1,0 +1,17 @@
+{# Yearly leave balance pill. Expects `leave_balance` from get_leave_balance(). #}
+{% if leave_balance %}
+<div class="inline-flex flex-wrap items-center gap-2 bg-slate-100 border border-slate-200 rounded-full px-3 py-1 text-sm">
+    <i class="fa-solid fa-calendar-check text-slate-500"></i>
+    <span class="font-medium text-slate-700">
+        Leaves {{ leave_balance.year }}: {{ leave_balance.total_used }}/{{ leave_balance.cap }} used
+    </span>
+    {% if leave_balance.is_at_cap %}
+        <span class="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs font-semibold">CAP REACHED</span>
+    {% elif leave_balance.remaining <= 3 %}
+        <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">{{ leave_balance.remaining }} LEFT</span>
+    {% else %}
+        <span class="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold">{{ leave_balance.remaining }} AVAILABLE</span>
+    {% endif %}
+    <span class="text-slate-500 text-xs">(VL: {{ leave_balance.vl_used }} · SL: {{ leave_balance.sl_used }})</span>
+</div>
+{% endif %}

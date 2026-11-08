@@ -191,6 +191,33 @@ def generate_invoice_number():
     return f'{prefix}001'
 
 
+LEAVE_CAP_PER_YEAR = 12
+
+
+def get_leave_balance(user_id, year=None):
+    """Combined VL+SL usage vs. the yearly cap for one user (calendar year, no carryover)."""
+    if year is None:
+        year = date.today().year
+    leaves = LeaveDay.query.filter(
+        LeaveDay.user_id == user_id,
+        LeaveDay.date >= date(year, 1, 1),
+        LeaveDay.date <= date(year, 12, 31),
+    ).all()
+    # leave_type is stored uppercase ('VL'/'SL') by mark_leave; compare case-insensitively
+    vl_used = sum(1 for l in leaves if l.leave_type.lower() == 'vl')
+    sl_used = sum(1 for l in leaves if l.leave_type.lower() == 'sl')
+    total_used = vl_used + sl_used
+    return {
+        'vl_used': vl_used,
+        'sl_used': sl_used,
+        'total_used': total_used,
+        'remaining': max(0, LEAVE_CAP_PER_YEAR - total_used),
+        'cap': LEAVE_CAP_PER_YEAR,
+        'is_at_cap': total_used >= LEAVE_CAP_PER_YEAR,
+        'year': year,
+    }
+
+
 def build_month_calendar(user_id, year, month):
     days_in_month = monthrange(year, month)[1]
     today = date.today()
@@ -334,6 +361,7 @@ def employee_dashboard():
     return render_template(
         'employee_dashboard.html',
         open_session=open_session, calendar=calendar,
+        leave_balance=get_leave_balance(current_user.id, year),
         year=year, month=month, month_name=month_name[month],
         available_years=range(today.year - 2, today.year + 2),
     )
@@ -430,6 +458,15 @@ def mark_leave():
         existing.marked_at = datetime.now()
         flash(f'Updated {leave_date} to {leave_type}.', 'success')
     else:
+        # Yearly cap only applies when adding a new leave day (switching VL<->SL doesn't use a slot)
+        balance = get_leave_balance(target_user_id, leave_date.year)
+        if balance['is_at_cap']:
+            if not current_user.is_super_admin:
+                flash(f'Leave cap reached: {balance["total_used"]}/{balance["cap"]} days used '
+                      f'in {leave_date.year}. Super-admin override required.', 'error')
+                return redirect(url_for(redirect_to, **redirect_kwargs))
+            flash(f'Super-admin override: marked leave despite '
+                  f'{balance["total_used"]}/{balance["cap"]} cap.', 'info')
         new_leave = LeaveDay(
             user_id=target_user_id, date=leave_date,
             leave_type=leave_type, note=note or None,
@@ -488,6 +525,7 @@ def admin_employee_tracker(employee_id):
     return render_template(
         'admin_employee_tracker.html',
         employee=employee, all_employees=all_employees, calendar=calendar,
+        leave_balance=get_leave_balance(employee.id, year),
         year=year, month=month, month_name=month_name[month],
         available_years=range(today.year - 2, today.year + 2),
     )
@@ -674,6 +712,30 @@ def admin_employees():
     employees = query.order_by(User.fname).all()
     return render_template('admin_employees.html',
                            employees=employees, show_all=show_all, search=search)
+
+
+@app.route('/admin/leaves')
+@role_required('admin')
+def admin_leaves():
+    """Yearly VL/SL usage vs. the cap for every tracked employee (super-admins don't track attendance)."""
+    today = date.today()
+    year = request.args.get('year', today.year, type=int)
+    show_all = request.args.get('show_all', '') == '1'
+    query = User.query.filter(User.role != 'super-admin')
+    if not show_all:
+        query = query.filter(User.employment_status == 'active')
+    employees = query.order_by(User.fname).all()
+    rows = [{'employee': e, 'balance': get_leave_balance(e.id, year)} for e in employees]
+    return render_template(
+        'admin_leaves.html', rows=rows, year=year, show_all=show_all,
+        current_year=today.year, current_month=today.month,
+        available_years=range(today.year - 2, today.year + 2),
+        totals={
+            'at_cap': sum(1 for r in rows if r['balance']['is_at_cap']),
+            'vl': sum(r['balance']['vl_used'] for r in rows),
+            'sl': sum(r['balance']['sl_used'] for r in rows),
+        },
+    )
 
 
 @app.route('/admin/employees/new', methods=['GET', 'POST'])

@@ -44,6 +44,7 @@
                 <div>
                     <h2 class="text-lg font-semibold">{{ employee.fname }} {{ employee.lname }}</h2>
                     <p class="text-xs text-slate-500">@{{ employee.username }} — {{ month_name }} {{ year }}</p>
+                    <div class="mt-2">{% include '_leave_balance_badge.html' %}</div>
                 </div>
                 <div class="flex items-center gap-2">
                 <form method="GET" class="flex gap-2">

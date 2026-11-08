@@ -101,6 +101,40 @@
                         {% endif %}
                         <button type="submit" class="text-red-600 hover:text-red-800">Remove</button>
                     </form>
+                {% elif day.status in ('absent', 'no_work') and not day.is_future and leave_balance and leave_balance.is_at_cap and not current_user.is_super_admin %}
+                    {# Yearly leave cap reached: VL/SL disabled for admins and employees #}
+                    <div class="flex gap-1 items-center">
+                        <span class="bg-slate-100 text-slate-400 px-2 py-1 rounded font-medium cursor-not-allowed"
+                              title="Leave cap reached ({{ leave_balance.total_used }}/{{ leave_balance.cap }})">VL</span>
+                        <span class="bg-slate-100 text-slate-400 px-2 py-1 rounded font-medium cursor-not-allowed"
+                              title="Leave cap reached ({{ leave_balance.total_used }}/{{ leave_balance.cap }})">SL</span>
+                    </div>
+                {% elif day.status in ('absent', 'no_work') and not day.is_future and leave_balance and leave_balance.is_at_cap %}
+                    {# Super-admin at cap: one form per type so the SweetAlert confirm keeps leave_type
+                       (base.html's confirm handler calls form.submit(), which drops the clicked button's value) #}
+                    <div class="flex gap-1 items-center">
+                        {% for lt in ('VL', 'SL') %}
+                        <form method="POST" action="{{ url_for('mark_leave') }}" class="inline"
+                              data-confirm="Cap reached ({{ leave_balance.total_used }}/{{ leave_balance.cap }}). Override and mark {{ lt }} anyway?"
+                              data-confirm-title="Override Leave Cap"
+                              data-confirm-button="Yes, override">
+                            <input type="hidden" name="user_id" value="{{ employee.id if employee else current_user.id }}">
+                            <input type="hidden" name="date" value="{{ day.date.strftime('%Y-%m-%d') }}">
+                            <input type="hidden" name="leave_type" value="{{ lt }}">
+                            <input type="hidden" name="redirect_to" value="{{ redirect_to or 'employee_dashboard' }}">
+                            {% if redirect_to == 'admin_employee_tracker' %}
+                                <input type="hidden" name="year" value="{{ year }}">
+                                <input type="hidden" name="month" value="{{ month }}">
+                            {% endif %}
+                            <button type="submit" title="Super-admin override — cap reached"
+                                    class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-1 rounded font-medium ring-1 ring-purple-300">{{ lt }}</button>
+                        </form>
+                        {% endfor %}
+                        {% if employee %}
+                            <a href="{{ url_for('admin_add_attendance', employee_id=employee.id, date=day.date.isoformat()) }}"
+                               class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded font-medium whitespace-nowrap">+ Add</a>
+                        {% endif %}
+                    </div>
                 {% elif day.status in ('absent', 'no_work') and not day.is_future %}
                     <form method="POST" action="{{ url_for('mark_leave') }}" class="flex gap-1 items-center">
                         <input type="hidden" name="user_id" value="{{ employee.id if employee else current_user.id }}">
