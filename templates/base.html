@@ -6,6 +6,36 @@
     <title>{% block title %}Artchelo Design{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* --- Typography --- */
+        body, html { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+        .font-display { font-family: 'Inter', sans-serif; letter-spacing: -0.02em; }
+
+        /* --- Glass + gradient utilities --- */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.04);
+        }
+        .gradient-purple { background: linear-gradient(135deg, #c7d2fe 0%, #f0abfc 100%); }
+        .gradient-pink { background: linear-gradient(135deg, #fecaca 0%, #fbcfe8 100%); }
+        .gradient-blue { background: linear-gradient(135deg, #bae6fd 0%, #c7d2fe 100%); }
+        .gradient-mint { background: linear-gradient(135deg, #bbf7d0 0%, #bae6fd 100%); }
+        .gradient-peach { background: linear-gradient(135deg, #fed7aa 0%, #fecaca 100%); }
+        .gradient-hero { background: linear-gradient(135deg, #e0e7ff 0%, #fae8ff 50%, #fce7f3 100%); }
+        .text-gradient-purple {
+            background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
     <style>
         .sidebar-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem; border-radius: 0.5rem; color: #cbd5e1; font-size: 0.875rem; transition: all 0.15s; }
         .sidebar-link:hover { background: rgba(255,255,255,0.08); color: white; }
@@ -42,35 +72,44 @@
         <nav class="flex-1 py-3 px-3 overflow-y-auto">
             {% if current_user.is_admin_or_above %}
                 <a href="{{ url_for('dashboard') }}" class="sidebar-link">
-                    <span>📊</span> Dashboard
+                    <i class="fa-solid fa-gauge-high w-5 text-center"></i>
+                    <span>Dashboard</span>
                 </a>
                 <div class="sidebar-section">Operations</div>
                 <a href="{{ url_for('admin_dashboard') }}" class="sidebar-link">
-                    <span>🕒</span> Attendance
+                    <i class="fa-solid fa-clock w-5 text-center"></i>
+                    <span>Attendance</span>
                 </a>
                 <a href="{{ url_for('admin_employees') }}" class="sidebar-link">
-                    <span>👥</span> Team
+                    <i class="fa-solid fa-users w-5 text-center"></i>
+                    <span>Team</span>
                 </a>
                 <div class="sidebar-section">Business</div>
                 <a href="{{ url_for('sales_overview') }}" class="sidebar-link">
-                    <span>💼</span> Sales Overview
+                    <i class="fa-solid fa-chart-line w-5 text-center"></i>
+                    <span>Sales Overview</span>
                 </a>
                 <a href="{{ url_for('sales_leads') }}" class="sidebar-link">
-                    <span>🎯</span> Leads
+                    <i class="fa-solid fa-bullseye w-5 text-center"></i>
+                    <span>Leads</span>
                 </a>
                 <a href="{{ url_for('sales_invoices') }}" class="sidebar-link">
-                    <span>🧾</span> Invoices
+                    <i class="fa-solid fa-file-invoice-dollar w-5 text-center"></i>
+                    <span>Invoices</span>
                 </a>
                 <a href="{{ url_for('sales_clients') }}" class="sidebar-link">
-                    <span>🏢</span> Clients
+                    <i class="fa-solid fa-building w-5 text-center"></i>
+                    <span>Clients</span>
                 </a>
                 <div class="sidebar-section">Projects</div>
                 <a href="{{ url_for('projects_list') }}" class="sidebar-link">
-                    <span>🌐</span> Website Projects
+                    <i class="fa-solid fa-globe w-5 text-center"></i>
+                    <span>Website Projects</span>
                 </a>
             {% else %}
                 <a href="{{ url_for('employee_dashboard') }}" class="sidebar-link">
-                    <span>🕒</span> My Attendance
+                    <i class="fa-solid fa-user-clock w-5 text-center"></i>
+                    <span>My Attendance</span>
                 </a>
             {% endif %}
         </nav>
@@ -95,15 +134,15 @@
             </div>
             <a href="{{ url_for('change_password') }}"
                class="block mt-2 text-center text-xs text-slate-300 hover:text-white py-1.5">
-                🔒 Change Password
+                <i class="fa-solid fa-lock w-4 text-center mr-1"></i> Change Password
             </a>
             <a href="{{ url_for('logout') }}" class="block mt-1 text-center bg-slate-800 hover:bg-slate-700 text-sm py-2 rounded">
-                Logout
+                <i class="fa-solid fa-right-from-bracket w-4 text-center mr-1"></i> Logout
             </a>
         </div>
     </aside>
 
-    <main class="flex-1 overflow-x-auto">
+    <main class="flex-1 overflow-x-auto" {% block main_attrs %}{% endblock %}>
         <div class="max-w-7xl mx-auto p-6">
             {% block content %}{% endblock %}
         </div>
