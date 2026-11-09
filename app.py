@@ -19,7 +19,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Border, Font, PatternFill, Side
 from sqlalchemy import extract, func
 from models import (
-    db, User, Attendance, LeaveDay, LeaveRequest,
+    db, User, Attendance, LeaveDay, LeaveRequest, AttendanceTicket,
     Client, SalesLead, SalesInvoice,
     Project, DomainRenewal, ProjectStatusHistory,
 )
@@ -28,6 +28,13 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'change-this-secret-key-in-production'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///attendance.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# "Remember me" cookie (Flask-Login). Only extends the session; no password stored.
+app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
+# REMEMBER_COOKIE_SECURE should be True in production (HTTPS only).
+# Left unset so dev works on localhost over http.
 
 db.init_app(app)
 
@@ -273,22 +280,40 @@ def visible_leave_requests_query():
     return query
 
 
+def visible_tickets_query():
+    """AttendanceTicket query with super-admins' tickets hidden from non-super-admin viewers."""
+    query = AttendanceTicket.query
+    if not current_user.is_super_admin:
+        query = query.join(User, AttendanceTicket.user_id == User.id).filter(User.role != 'super-admin')
+    return query
+
+
 @app.context_processor
-def inject_leave_counts():
-    """Sidebar badges: pending requests (admins) and recent decisions (employees)."""
-    pending, unseen = 0, 0
+def inject_pending_counts():
+    """Sidebar badges: pending leave requests/tickets (admins) and recent decisions (employees)."""
+    counts = {'pending_leave_count': 0, 'pending_ticket_count': 0,
+              'employee_unseen_decisions': 0, 'employee_unseen_tickets': 0}
     if current_user.is_authenticated:
         if current_user.is_admin_or_above:
-            pending = visible_leave_requests_query().filter(LeaveRequest.status == 'pending').count()
+            counts['pending_leave_count'] = (visible_leave_requests_query()
+                                             .filter(LeaveRequest.status == 'pending').count())
+            counts['pending_ticket_count'] = (visible_tickets_query()
+                                              .filter(AttendanceTicket.status == 'pending').count())
         if current_user.role == 'employee':
             # No "seen" tracking in the schema: counts decisions from the last 7 days
             week_ago = datetime.now() - timedelta(days=7)
-            unseen = LeaveRequest.query.filter(
+            decided = ('approved', 'rejected', 'voided')
+            counts['employee_unseen_decisions'] = LeaveRequest.query.filter(
                 LeaveRequest.user_id == current_user.id,
-                LeaveRequest.status.in_(('approved', 'rejected', 'voided')),
+                LeaveRequest.status.in_(decided),
                 LeaveRequest.approved_at >= week_ago,
             ).count()
-    return {'pending_leave_count': pending, 'employee_unseen_decisions': unseen}
+            counts['employee_unseen_tickets'] = AttendanceTicket.query.filter(
+                AttendanceTicket.user_id == current_user.id,
+                AttendanceTicket.status.in_(decided),
+                AttendanceTicket.reviewed_at >= week_ago,
+            ).count()
+    return counts
 
 
 def build_month_calendar(user_id, year, month):
@@ -366,7 +391,8 @@ def login():
                 status_label = user.employment_status.replace('_', ' ').title()
                 flash(f'Account not active (status: {status_label}). Please contact admin.', 'error')
                 return render_template('login.html')
-            login_user(user)
+            remember = request.form.get('remember') == 'on'
+            login_user(user, remember=remember)
             return redirect(url_for(
                 'dashboard' if user.is_admin_or_above
                 else 'employee_dashboard'
@@ -894,6 +920,342 @@ def edit_leave_request(request_id):
     else:
         flash('Leave request updated.', 'success')
     return redirect(url_for('pending_leave_requests'))
+
+
+# ---------- Attendance tickets (corrections) ----------
+
+TICKET_TYPES = tuple(AttendanceTicket.TYPE_LABELS)
+TICKET_MAX_AGE_DAYS = 30
+TICKETS_NEEDING_TIME_IN = ('forgot_time_in', 'wrong_times')
+TICKETS_NEEDING_TIME_OUT = ('forgot_time_out', 'wrong_times')
+
+
+def attendance_on(user_id, d):
+    """The user's (earliest) attendance record whose Time In falls on date `d`, or None."""
+    return (Attendance.query.filter(
+        Attendance.user_id == user_id,
+        Attendance.datetime_in >= datetime.combine(d, datetime.min.time()),
+        Attendance.datetime_in <= datetime.combine(d, datetime.max.time()),
+    ).order_by(Attendance.datetime_in.asc()).first())
+
+
+def _hours_between(start, end):
+    return round((end - start).total_seconds() / 3600, 2)
+
+
+def _fmt_time(dt):
+    return dt.strftime('%I:%M %p')
+
+
+@app.route('/tickets/submit', methods=['GET', 'POST'])
+@login_required
+def submit_ticket():
+    today = date.today()
+    min_date = today - timedelta(days=TICKET_MAX_AGE_DAYS)
+    render = lambda form: render_template('submit_ticket.html', form=form,
+                                          today=today, min_date=min_date)
+    if request.method == 'GET':
+        return render({})
+
+    form = request.form
+    ticket_type = form.get('ticket_type', '').strip()
+    target_date_str = form.get('target_date', '').strip()
+    time_in_str = form.get('proposed_time_in', '').strip()
+    time_out_str = form.get('proposed_time_out', '').strip()
+    proposed_task_report = form.get('proposed_task_report', '').strip()
+    reason = form.get('reason', '').strip()
+
+    errors = []
+    if ticket_type not in TICKET_TYPES:
+        errors.append('Invalid ticket type.')
+    if not reason:
+        errors.append('Reason is required.')
+
+    target_date = None
+    try:
+        target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        errors.append('Please enter a valid date.')
+    if target_date:
+        if target_date > today:
+            errors.append('Cannot submit tickets for future dates.')
+        elif target_date < min_date:
+            errors.append(f'Cannot submit tickets older than {TICKET_MAX_AGE_DAYS} days.')
+
+    proposed_time_in = proposed_time_out = None
+    if ticket_type in TICKETS_NEEDING_TIME_IN:
+        if not time_in_str:
+            errors.append('Proposed Time In is required for this ticket type.')
+        else:
+            try:
+                proposed_time_in = datetime.strptime(time_in_str, '%H:%M').time()
+            except ValueError:
+                errors.append('Invalid Time In format.')
+    if ticket_type in TICKETS_NEEDING_TIME_OUT:
+        if not time_out_str:
+            errors.append('Proposed Time Out is required for this ticket type.')
+        else:
+            try:
+                proposed_time_out = datetime.strptime(time_out_str, '%H:%M').time()
+            except ValueError:
+                errors.append('Invalid Time Out format.')
+    if ticket_type == 'wrong_times' and proposed_time_in and proposed_time_out \
+            and proposed_time_out <= proposed_time_in:
+        errors.append('Time Out must be after Time In.')
+    if target_date == today:
+        now_t = datetime.now().time()
+        if any(t and t > now_t for t in (proposed_time_in, proposed_time_out)):
+            errors.append('Proposed times for today cannot be later than the current time.')
+    if ticket_type == 'missing_task' and not proposed_task_report:
+        errors.append('Task Report text is required for this ticket type.')
+
+    if not errors and AttendanceTicket.query.filter_by(
+            user_id=current_user.id, ticket_type=ticket_type,
+            target_date=target_date, status='pending').first():
+        errors.append(f'You already have a pending "{AttendanceTicket.TYPE_LABELS[ticket_type]}" '
+                      f'ticket for {target_date.strftime("%b %d, %Y")}.')
+
+    if errors:
+        for e in errors:
+            flash(e, 'error')
+        return render(form)
+
+    db.session.add(AttendanceTicket(
+        user_id=current_user.id,
+        ticket_type=ticket_type,
+        target_date=target_date,
+        proposed_time_in=proposed_time_in,
+        proposed_time_out=proposed_time_out,
+        # Only keep the task text for the type that uses it (the field is hidden otherwise)
+        proposed_task_report=(proposed_task_report or None) if ticket_type == 'missing_task' else None,
+        reason=reason,
+        status='pending',
+    ))
+    db.session.commit()
+    flash('Ticket submitted. Awaiting admin review.', 'success')
+    return redirect(url_for('my_tickets'))
+
+
+@app.route('/tickets/my')
+@login_required
+def my_tickets():
+    tickets = (AttendanceTicket.query.filter_by(user_id=current_user.id)
+               .order_by(AttendanceTicket.created_at.desc()).all())
+    return render_template('my_tickets.html', tickets=tickets)
+
+
+@app.route('/tickets/<int:ticket_id>/cancel', methods=['POST'])
+@login_required
+def cancel_ticket(ticket_id):
+    ticket = AttendanceTicket.query.get_or_404(ticket_id)
+    if ticket.user_id != current_user.id:
+        abort(403)
+    if ticket.status != 'pending':
+        flash('Only pending tickets can be cancelled.', 'error')
+        return redirect(url_for('my_tickets'))
+    ticket.status = 'cancelled'
+    db.session.commit()
+    flash('Ticket cancelled.', 'success')
+    return redirect(url_for('my_tickets'))
+
+
+@app.route('/tickets/pending')
+@role_required('admin')
+def pending_tickets():
+    pending = (visible_tickets_query()
+               .filter(AttendanceTicket.status == 'pending')
+               .order_by(AttendanceTicket.created_at.asc()).all())
+    # Current attendance for each ticket's day, so the reviewer sees what approval will change
+    current_records = {t.id: attendance_on(t.user_id, t.target_date) for t in pending}
+    recent = (visible_tickets_query()
+              .filter(AttendanceTicket.status.in_(('approved', 'rejected', 'voided')))
+              .order_by(AttendanceTicket.reviewed_at.desc()).limit(20).all())
+    return render_template('pending_tickets.html', pending=pending,
+                           current_records=current_records, recent=recent)
+
+
+def _load_decidable_ticket(ticket_id, verb):
+    """Shared guards for approve/reject. Returns (ticket, None) or (None, redirect_response)."""
+    ticket = AttendanceTicket.query.get_or_404(ticket_id)
+    get_visible_user_or_404(ticket.user_id)   # admins can't act on super-admin tickets
+    back = redirect(url_for('pending_tickets'))
+    if ticket.status != 'pending':
+        flash(f'Only pending tickets can be {verb}.', 'error')
+        return None, back
+    if ticket.user_id == current_user.id and not current_user.is_super_admin:
+        flash('You can’t decide your own ticket — another admin must review it.', 'error')
+        return None, back
+    return ticket, None
+
+
+def apply_ticket_fix(ticket):
+    """Apply an approved ticket's correction to Attendance (not committed).
+    Returns (summary, None) on success or (None, error_message) if it can't be applied."""
+    d = ticket.target_date
+    existing = attendance_on(ticket.user_id, d)
+    now = datetime.now()
+
+    def touch(rec):
+        rec.edited_at = now
+        rec.edited_by_id = current_user.id
+
+    def creation_blocker():
+        if LeaveDay.query.filter_by(user_id=ticket.user_id, date=d).first():
+            return f'{d.strftime("%b %d, %Y")} is marked as leave. Remove the leave first, then approve.'
+        return None
+
+    if ticket.ticket_type == 'forgot_time_in':
+        time_in = datetime.combine(d, ticket.proposed_time_in)
+        if existing:
+            if existing.datetime_out and time_in >= existing.datetime_out:
+                return None, (f'Proposed Time In ({_fmt_time(time_in)}) is not before the recorded '
+                              f'Time Out ({_fmt_time(existing.datetime_out)}).')
+            old = existing.datetime_in
+            existing.datetime_in = time_in
+            if existing.datetime_out:
+                existing.total_hours = _hours_between(time_in, existing.datetime_out)
+            touch(existing)
+            return f'Time In changed from {_fmt_time(old)} to {_fmt_time(time_in)}', None
+        # No record: this creates an open session the employee closes with their normal Time Out.
+        # That only makes sense for today — a past day would stay open and hijack the next Time Out.
+        if d < date.today():
+            return None, (f'No attendance record exists for {d.strftime("%b %d, %Y")}, and a past day '
+                          f'needs both times. Ask the employee to submit a "Wrong Time In/Out" ticket instead.')
+        blocker = creation_blocker()
+        if blocker:
+            return None, blocker
+        if Attendance.query.filter_by(user_id=ticket.user_id, datetime_out=None).first():
+            return None, 'The employee already has an open session (timed in, not out). Resolve that first.'
+        db.session.add(Attendance(
+            user_id=ticket.user_id, datetime_in=time_in, day=time_in.strftime('%A'),
+            task_report=ticket.reason, edited_at=now, edited_by_id=current_user.id,
+        ))
+        return f'Created attendance with Time In {_fmt_time(time_in)}', None
+
+    if ticket.ticket_type == 'forgot_time_out':
+        if not existing:
+            return None, ('Cannot set Time Out: no attendance record exists for that day. '
+                          'The employee should submit a "Wrong Time In/Out" ticket with both times.')
+        time_out = datetime.combine(d, ticket.proposed_time_out)
+        if time_out <= existing.datetime_in:
+            return None, (f'Proposed Time Out ({_fmt_time(time_out)}) is not after the recorded '
+                          f'Time In ({_fmt_time(existing.datetime_in)}).')
+        old = existing.datetime_out
+        existing.datetime_out = time_out
+        existing.total_hours = _hours_between(existing.datetime_in, time_out)
+        touch(existing)
+        if old:
+            return f'Time Out changed from {_fmt_time(old)} to {_fmt_time(time_out)}', None
+        return f'Set Time Out to {_fmt_time(time_out)}', None
+
+    if ticket.ticket_type == 'wrong_times':
+        time_in = datetime.combine(d, ticket.proposed_time_in)
+        time_out = datetime.combine(d, ticket.proposed_time_out)
+        if existing:
+            old_in, old_out = existing.datetime_in, existing.datetime_out
+            existing.datetime_in, existing.datetime_out = time_in, time_out
+            existing.total_hours = _hours_between(time_in, time_out)
+            touch(existing)
+            was = f'{_fmt_time(old_in)} – {_fmt_time(old_out) if old_out else "(no Time Out)"}'
+            return f'Times changed from {was} to {_fmt_time(time_in)} – {_fmt_time(time_out)}', None
+        blocker = creation_blocker()
+        if blocker:
+            return None, blocker
+        db.session.add(Attendance(
+            user_id=ticket.user_id, datetime_in=time_in, datetime_out=time_out,
+            day=time_in.strftime('%A'), task_report=ticket.reason,
+            total_hours=_hours_between(time_in, time_out),
+            edited_at=now, edited_by_id=current_user.id,
+        ))
+        return f'Created attendance {_fmt_time(time_in)} – {_fmt_time(time_out)}', None
+
+    if ticket.ticket_type == 'missing_task':
+        if not existing:
+            return None, 'Cannot set Task Report: no attendance record exists for that day.'
+        existing.task_report = ticket.proposed_task_report
+        touch(existing)
+        return 'Updated Task Report', None
+
+    # 'other': no automatic fix — the admin applies any change manually
+    return 'Ticket acknowledged — admin should apply manual fix if needed', None
+
+
+@app.route('/tickets/<int:ticket_id>/approve', methods=['POST'])
+@role_required('admin')
+def approve_ticket(ticket_id):
+    ticket, resp = _load_decidable_ticket(ticket_id, 'approved')
+    if resp:
+        return resp
+    summary, error = apply_ticket_fix(ticket)
+    if error:
+        db.session.rollback()
+        flash(f'Not approved — {error}', 'error')
+        return redirect(url_for('pending_tickets'))
+    ticket.status = 'approved'
+    ticket.reviewed_by_id = current_user.id
+    ticket.reviewed_at = datetime.now()
+    ticket.admin_note = request.form.get('admin_note', '').strip() or None
+    ticket.applied_change_summary = summary
+    db.session.commit()
+    flash(f'Approved ticket from {ticket.user.full_name}. {summary}.', 'success')
+    return redirect(url_for('pending_tickets'))
+
+
+@app.route('/tickets/<int:ticket_id>/reject', methods=['POST'])
+@role_required('admin')
+def reject_ticket(ticket_id):
+    ticket, resp = _load_decidable_ticket(ticket_id, 'rejected')
+    if resp:
+        return resp
+    admin_note = request.form.get('admin_note', '').strip()
+    if not admin_note:
+        flash('Please provide a reason for rejecting this ticket.', 'error')
+        return redirect(url_for('pending_tickets'))
+    ticket.status = 'rejected'
+    ticket.reviewed_by_id = current_user.id
+    ticket.reviewed_at = datetime.now()
+    ticket.admin_note = admin_note
+    db.session.commit()
+    flash(f'Rejected ticket from {ticket.user.full_name}.', 'success')
+    return redirect(url_for('pending_tickets'))
+
+
+@app.route('/tickets/<int:ticket_id>/void', methods=['POST'])
+@role_required('admin')
+def void_ticket(ticket_id):
+    """Invalidate a ticket (keeps the record). Attendance changes from an approval are NOT reverted."""
+    ticket = AttendanceTicket.query.get_or_404(ticket_id)
+    get_visible_user_or_404(ticket.user_id)   # admins can't touch super-admin tickets
+    if ticket.status in ('voided', 'cancelled'):
+        flash(f'Ticket is already {ticket.status}.', 'error')
+        return redirect(url_for('pending_tickets'))
+    reason = request.form.get('admin_note', '').strip()
+    if not reason:
+        flash('Please provide a reason for voiding this ticket.', 'error')
+        return redirect(url_for('pending_tickets'))
+    was_approved = ticket.status == 'approved'
+    prior = f' (was {ticket.status}' + (f' by {ticket.reviewer.full_name}' if ticket.reviewer else '') + ')'
+    prepend_admin_note(ticket, f'[VOIDED by {current_user.full_name}{prior}]: {reason}')
+    ticket.status = 'voided'
+    ticket.reviewed_by_id = current_user.id
+    ticket.reviewed_at = datetime.now()
+    db.session.commit()
+    flash(f'Voided ticket from {ticket.user.full_name}.', 'success')
+    if was_approved:
+        flash('The attendance change it applied was not reverted — edit the record manually if needed.', 'warning')
+    return redirect(url_for('pending_tickets'))
+
+
+@app.route('/tickets/<int:ticket_id>/delete', methods=['POST'])
+@role_required('super-admin')
+def delete_ticket(ticket_id):
+    """Super-admin only: permanently delete a ticket. Applied attendance changes stay."""
+    ticket = AttendanceTicket.query.get_or_404(ticket_id)
+    name = ticket.user.full_name
+    db.session.delete(ticket)
+    db.session.commit()
+    flash(f'Permanently deleted ticket from {name}.', 'success')
+    return redirect(url_for('pending_tickets'))
 
 
 # ---------- Admin: Attendance ----------

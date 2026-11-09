@@ -184,6 +184,74 @@ class LeaveRequest(db.Model):
         return f"{self.start_date.strftime('%b %d, %Y')} – {self.end_date.strftime('%b %d, %Y')}"
 
 
+class AttendanceTicket(db.Model):
+    """An employee's request to correct one day's attendance, reviewed by an admin."""
+    __tablename__ = 'attendance_tickets'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    # 'forgot_time_in', 'forgot_time_out', 'wrong_times', 'missing_task', 'other'
+    ticket_type = db.Column(db.String(30), nullable=False)
+    target_date = db.Column(db.Date, nullable=False)
+    proposed_time_in = db.Column(db.Time, nullable=True)
+    proposed_time_out = db.Column(db.Time, nullable=True)
+    proposed_task_report = db.Column(db.Text, nullable=True)
+    reason = db.Column(db.Text, nullable=False)
+    # 'pending', 'approved', 'rejected', 'cancelled', 'voided'
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    reviewed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    admin_note = db.Column(db.Text, nullable=True)
+    applied_change_summary = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    user = db.relationship('User', foreign_keys=[user_id], backref='attendance_tickets')
+    reviewer = db.relationship('User', foreign_keys=[reviewed_by_id])
+
+    TYPE_LABELS = {
+        'forgot_time_in': 'Forgot to Time In',
+        'forgot_time_out': 'Forgot to Time Out',
+        'wrong_times': 'Wrong Time In/Out',
+        'missing_task': 'Missing Task Report',
+        'other': 'Other',
+    }
+
+    @property
+    def is_pending(self):
+        return self.status == 'pending'
+
+    @property
+    def type_label(self):
+        return self.TYPE_LABELS.get(self.ticket_type, self.ticket_type)
+
+    @property
+    def status_badge_class(self):
+        return {
+            'pending': 'bg-amber-100 text-amber-700',
+            'approved': 'bg-green-100 text-green-700',
+            'rejected': 'bg-red-100 text-red-700',
+            'cancelled': 'bg-slate-100 text-slate-500',
+            'voided': 'bg-orange-100 text-orange-700',
+        }.get(self.status, 'bg-slate-100 text-slate-500')
+
+    def details(self):
+        """Payload for the View modal (showTicketDetails in base.html)."""
+        fmt = lambda t: t.strftime('%I:%M %p') if t else ''
+        return {
+            'employee': self.user.full_name,
+            'type': self.type_label,
+            'target_date': self.target_date.strftime('%b %d, %Y (%A)'),
+            'time_in': fmt(self.proposed_time_in),
+            'time_out': fmt(self.proposed_time_out),
+            'task_report': self.proposed_task_report or '',
+            'reason': self.reason,
+            'status': self.status,
+            'admin_note': self.admin_note or '',
+            'applied': self.applied_change_summary or '',
+            'reviewer': self.reviewer.full_name if self.reviewer else '',
+            'reviewed_at': self.reviewed_at.strftime('%b %d, %Y %I:%M %p') if self.reviewed_at else '',
+        }
+
+
 # ========== Clients & Sales ==========
 
 class Client(db.Model):

@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block title %}My Tickets{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-800">My Attendance Tickets</h1>
+            <p class="text-slate-500">Track your submitted tickets and their status.</p>
+        </div>
+        <a href="{{ url_for('submit_ticket') }}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium">
+            <i class="fa-solid fa-plus"></i> Submit Ticket
+        </a>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+        <table class="w-full min-w-[720px]">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Submitted</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Type</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Target Date</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Status</th>
+                    <th class="text-left px-4 py-3 text-sm font-semibold text-slate-700">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in tickets %}
+                <tr class="border-b border-slate-100 align-top">
+                    <td class="px-4 py-3 text-sm whitespace-nowrap">{{ t.created_at.strftime('%b %d, %Y') }}</td>
+                    <td class="px-4 py-3 text-sm">{{ t.type_label }}</td>
+                    <td class="px-4 py-3 text-sm whitespace-nowrap">{{ t.target_date.strftime('%b %d, %Y') }}</td>
+                    <td class="px-4 py-3">
+                        <span class="{{ t.status_badge_class }} px-2 py-1 rounded-full text-xs font-semibold uppercase">{{ t.status }}</span>
+                        {% if t.reviewer and t.status in ('approved', 'rejected', 'voided') %}
+                            <p class="text-xs text-slate-400 mt-1">by {{ t.reviewer.fname }}{% if t.reviewed_at %} · {{ t.reviewed_at.strftime('%b %d') }}{% endif %}</p>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-sm">
+                        <div class="flex items-center gap-3 whitespace-nowrap">
+                            <button type="button" data-ticket-details='{{ t.details()|tojson }}'
+                                    class="text-blue-600 hover:underline text-xs">
+                                <i class="fa-solid fa-eye"></i> View
+                            </button>
+                            {% if t.is_pending %}
+                                <form method="POST" action="{{ url_for('cancel_ticket', ticket_id=t.id) }}" class="inline"
+                                      data-confirm="Cancel this ticket ({{ t.type_label }}, {{ t.target_date.strftime('%b %d, %Y') }})?"
+                                      data-confirm-title="Cancel Ticket"
+                                      data-confirm-button="Yes, cancel">
+                                    <button type="submit" class="text-red-600 hover:underline text-xs">Cancel</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">No tickets yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% block title %}Submit Attendance Ticket{% endblock %}
+{% block content %}
+{% set input_cls = 'w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none' %}
+<div class="max-w-2xl mx-auto">
+    <a href="{{ url_for('my_tickets') }}" class="text-sm text-slate-500 hover:text-slate-700">
+        <i class="fa-solid fa-arrow-left"></i> My Tickets
+    </a>
+    <h1 class="text-3xl font-bold text-slate-800 mt-2 mb-1">Submit Attendance Ticket</h1>
+    <p class="text-slate-500 mb-6">Report an attendance issue for admin review (forgot to time in/out, wrong times, etc.)</p>
+
+    <form method="POST" class="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
+        <div>
+            <label for="ticket_type" class="block text-sm font-medium text-slate-700 mb-1">Ticket Type <span class="text-red-600">*</span></label>
+            <select name="ticket_type" id="ticket_type" required class="{{ input_cls }}">
+                <option value="">Select type</option>
+                {% for value, label in [('forgot_time_in', 'Forgot to Time In'), ('forgot_time_out', 'Forgot to Time Out'),
+                                        ('wrong_times', 'Wrong Time In/Out'), ('missing_task', 'Missing Task Report'),
+                                        ('other', 'Other')] %}
+                <option value="{{ value }}" {% if form.get('ticket_type') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <p id="type_hint" class="text-xs text-slate-500 mt-1"></p>
+        </div>
+
+        <div>
+            <label for="target_date" class="block text-sm font-medium text-slate-700 mb-1">Target Date <span class="text-red-600">*</span></label>
+            <input type="date" name="target_date" id="target_date" required
+                   min="{{ min_date.isoformat() }}" max="{{ today.isoformat() }}"
+                   value="{{ form.get('target_date', '') }}" class="{{ input_cls }}">
+            <p class="text-xs text-slate-500 mt-1">Last 30 days only.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div id="field_time_in" hidden>
+                <label for="proposed_time_in" class="block text-sm font-medium text-slate-700 mb-1">Proposed Time In <span class="text-red-600">*</span></label>
+                <input type="time" name="proposed_time_in" id="proposed_time_in"
+                       value="{{ form.get('proposed_time_in', '') }}" class="{{ input_cls }}">
+            </div>
+            <div id="field_time_out" hidden>
+                <label for="proposed_time_out" class="block text-sm font-medium text-slate-700 mb-1">Proposed Time Out <span class="text-red-600">*</span></label>
+                <input type="time" name="proposed_time_out" id="proposed_time_out"
+                       value="{{ form.get('proposed_time_out', '') }}" class="{{ input_cls }}">
+            </div>
+        </div>
+
+        <div id="field_task_report" hidden>
+            <label for="proposed_task_report" class="block text-sm font-medium text-slate-700 mb-1">Task Report <span class="text-red-600">*</span></label>
+            <textarea name="proposed_task_report" id="proposed_task_report" rows="3" class="{{ input_cls }}"
+                      placeholder="What task(s) did you work on?">{{ form.get('proposed_task_report', '') }}</textarea>
+        </div>
+
+        <div>
+            <label for="reason" class="block text-sm font-medium text-slate-700 mb-1">Reason / Explanation <span class="text-red-600">*</span></label>
+            <textarea name="reason" id="reason" required rows="4" class="{{ input_cls }}"
+                      placeholder="Explain what happened and what needs to be fixed...">{{ form.get('reason', '') }}</textarea>
+        </div>
+
+        <div class="flex gap-3">
+            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium">
+                <i class="fa-solid fa-paper-plane"></i> Submit Ticket
+            </button>
+            <a href="{{ url_for('my_tickets') }}"
+               class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded-lg font-medium">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+(function () {
+    const select = document.getElementById('ticket_type');
+    const hints = {
+        forgot_time_in: 'For today: you are working but did not clock in. For a past day with no record at all, use "Wrong Time In/Out" and give both times.',
+        forgot_time_out: 'Your record for that day has a Time In but no (or the wrong) Time Out.',
+        wrong_times: 'Replaces both times for that day, or creates the record if there is none.',
+        missing_task: 'Adds or replaces the task report on that day’s record.',
+        other: 'No automatic fix — an admin will review and correct it manually.',
+    };
+    // [wrapper id, input id, ticket types that need it]
+    const fields = [
+        ['field_time_in', 'proposed_time_in', ['forgot_time_in', 'wrong_times']],
+        ['field_time_out', 'proposed_time_out', ['forgot_time_out', 'wrong_times']],
+        ['field_task_report', 'proposed_task_report', ['missing_task']],
+    ];
+    function update() {
+        const type = select.value;
+        fields.forEach(function ([wrapId, inputId, types]) {
+            const on = types.includes(type);
+            document.getElementById(wrapId).hidden = !on;
+            document.getElementById(inputId).required = on;   // hidden fields must not block submit
+        });
+        document.getElementById('type_hint').textContent = hints[type] || '';
+    }
+    select.addEventListener('change', update);
+    update();   // initialise (also restores state after a validation error)
+})();
+</script>
+{% endblock %}

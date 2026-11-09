@@ -100,6 +100,17 @@
                     <i class="fa-solid fa-calendar-plus w-5 text-center"></i>
                     <span>My Leaves</span>
                 </a>
+                <a href="{{ url_for('pending_tickets') }}" class="sidebar-link">
+                    <i class="fa-solid fa-ticket w-5 text-center"></i>
+                    <span>Attendance Tickets</span>
+                    {% if pending_ticket_count > 0 %}
+                        <span class="ml-auto bg-red-500 text-white text-xs rounded-full px-2 py-0.5 font-semibold">{{ pending_ticket_count }}</span>
+                    {% endif %}
+                </a>
+                <a href="{{ url_for('my_tickets') }}" class="sidebar-link">
+                    <i class="fa-solid fa-ticket-simple w-5 text-center"></i>
+                    <span>My Tickets</span>
+                </a>
                 <div class="sidebar-section">Business</div>
                 <a href="{{ url_for('sales_overview') }}" class="sidebar-link">
                     <i class="fa-solid fa-chart-line w-5 text-center"></i>
@@ -132,6 +143,13 @@
                     <span>My Leaves</span>
                     {% if employee_unseen_decisions > 0 %}
                         <span class="ml-auto bg-blue-500 text-white text-xs rounded-full px-2 py-0.5 font-semibold">{{ employee_unseen_decisions }}</span>
+                    {% endif %}
+                </a>
+                <a href="{{ url_for('my_tickets') }}" class="sidebar-link">
+                    <i class="fa-solid fa-ticket-simple w-5 text-center"></i>
+                    <span>My Tickets</span>
+                    {% if employee_unseen_tickets > 0 %}
+                        <span class="ml-auto bg-blue-500 text-white text-xs rounded-full px-2 py-0.5 font-semibold">{{ employee_unseen_tickets }}</span>
                     {% endif %}
                 </a>
             {% endif %}
@@ -269,6 +287,59 @@ document.addEventListener('click', function(e) {
     const btn = e.target.closest('[data-leave-details]');
     if (btn) {
         try { showLeaveDetails(JSON.parse(btn.dataset.leaveDetails)); } catch (err) { console.error(err); }
+    }
+});
+
+// --- Attendance ticket "View" modal ---
+// Buttons carry a data-ticket-details attribute holding AttendanceTicket.details() as JSON.
+function showTicketDetails(data) {
+    const safe = (s) => (s === undefined || s === null || s === '') ? '—' : escapeHtml(s);
+    let proposed = '';
+    if (data.time_in || data.time_out) {
+        proposed += `<p style="margin-bottom: 8px;"><strong>Proposed Times:</strong> ${safe(data.time_in)} – ${safe(data.time_out)}</p>`;
+    }
+    if (data.task_report) {
+        proposed += `<p style="margin-bottom: 8px;"><strong>Proposed Task:</strong> <span style="white-space: pre-wrap;">${safe(data.task_report)}</span></p>`;
+    }
+    Swal.fire({
+        title: 'Ticket Details',
+        html: `
+            <div style="text-align:left; padding: 10px 0;">
+                <p style="margin-bottom: 8px;"><strong>Employee:</strong> ${safe(data.employee)}</p>
+                <p style="margin-bottom: 8px;"><strong>Type:</strong> ${safe(data.type)}</p>
+                <p style="margin-bottom: 8px;"><strong>Target Date:</strong> ${safe(data.target_date)}</p>
+                ${proposed}
+                <p style="margin-bottom: 8px;"><strong>Status:</strong> <span style="text-transform:uppercase; font-weight:600;">${safe(data.status)}</span></p>
+                <div style="margin-top: 12px; padding: 10px; background: #f8fafc; border-radius: 8px;">
+                    <p style="margin: 0 0 4px; font-weight: 600; color: #475569;">Reason:</p>
+                    <p style="margin: 0; white-space: pre-wrap;">${safe(data.reason)}</p>
+                </div>
+                ${data.applied ? `
+                    <div style="margin-top: 10px; padding: 10px; background: #dcfce7; border-radius: 8px;">
+                        <p style="margin: 0 0 4px; font-weight: 600; color: #166534;">Applied Changes:</p>
+                        <p style="margin: 0;">${safe(data.applied)}</p>
+                    </div>` : ''}
+                ${data.admin_note ? `
+                    <div style="margin-top: 10px; padding: 10px; background: #fef3c7; border-radius: 8px;">
+                        <p style="margin: 0 0 4px; font-weight: 600; color: #92400e;">Admin Note:</p>
+                        <p style="margin: 0; white-space: pre-wrap;">${safe(data.admin_note)}</p>
+                    </div>` : ''}
+                ${data.reviewer ? `
+                    <p style="margin-top: 10px; font-size: 0.85em; color: #64748b;">
+                        Decision by ${safe(data.reviewer)} on ${safe(data.reviewed_at)}
+                    </p>` : ''}
+            </div>`,
+        icon: 'info',
+        confirmButtonColor: '#2563eb',
+        confirmButtonText: 'Close',
+        width: '500px'
+    });
+}
+
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-ticket-details]');
+    if (btn) {
+        try { showTicketDetails(JSON.parse(btn.dataset.ticketDetails)); } catch (err) { console.error(err); }
     }
 });
 

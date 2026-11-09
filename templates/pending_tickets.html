@@ -1,0 +1,212 @@
+{% extends 'base.html' %}
+{% block title %}Attendance Tickets - Admin{% endblock %}
+
+{# Reason-required action button (Reject / Void): opens a SweetAlert prompt, then POSTs admin_note #}
+{% macro reason_button(url, t, verb, color, icon, classes, label=True) -%}
+<button type="button" data-reason-url="{{ url }}" data-name="{{ t.user.full_name }}"
+        data-verb="{{ verb }}" data-color="{{ color }}" data-approved="{{ '1' if t.status == 'approved' else '' }}"
+        class="{{ classes }}" title="{{ verb }}">
+    <i class="fa-solid {{ icon }}"></i>{% if label %} {{ verb }}{% endif %}
+</button>
+{%- endmacro %}
+
+{% macro delete_form(t, classes, label) -%}
+<form method="POST" action="{{ url_for('delete_ticket', ticket_id=t.id) }}" class="inline"
+      data-confirm="Permanently DELETE this ticket from {{ t.user.full_name }}?{% if t.status == 'approved' %} The attendance change it applied will stay.{% endif %} This cannot be undone."
+      data-confirm-title="Delete Ticket"
+      data-confirm-icon="warning"
+      data-confirm-button="Yes, delete">
+    <button type="submit" class="{{ classes }}" title="Delete permanently"><i class="fa-solid fa-trash"></i>{{ label }}</button>
+</form>
+{%- endmacro %}
+
+{% macro fmt(dt) -%}{{ dt.strftime('%I:%M %p') if dt else '—' }}{%- endmacro %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <h1 class="text-3xl font-bold text-slate-800 mb-1">Attendance Tickets</h1>
+    <p class="text-slate-500 mb-6">Review employee attendance correction requests.</p>
+
+    <!-- Pending -->
+    <section class="mb-10">
+        <div class="flex items-center gap-3 mb-4">
+            <h2 class="text-xl font-semibold text-slate-800">Pending</h2>
+            <span class="bg-amber-100 text-amber-700 px-2 py-1 rounded-full text-xs font-semibold">{{ pending|length }}</span>
+        </div>
+
+        {% if pending %}
+        <div class="space-y-3">
+        {% for t in pending %}
+            {% set rec = current_records[t.id] %}
+            {% set own = t.user_id == current_user.id and not current_user.is_super_admin %}
+            <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                <div class="flex items-start justify-between gap-4 mb-3">
+                    <div class="flex items-center gap-3">
+                        {% if t.user.avatar_url %}
+                            <img src="{{ t.user.avatar_url }}" alt="" class="w-10 h-10 rounded-full object-cover">
+                        {% else %}
+                            <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-semibold text-slate-600">{{ t.user.initials }}</div>
+                        {% endif %}
+                        <div>
+                            <p class="font-semibold text-slate-800">{{ t.user.full_name }}</p>
+                            <p class="text-xs text-slate-500">Submitted {{ t.created_at.strftime('%b %d, %Y at %I:%M %p') }}</p>
+                        </div>
+                    </div>
+                    <span class="uppercase font-bold text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-center">{{ t.type_label }}</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
+                    <div>
+                        <p class="text-xs text-slate-500">Target Date</p>
+                        <p class="text-sm font-medium">{{ t.target_date.strftime('%b %d, %Y (%A)') }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500">Current Record</p>
+                        {% if rec %}
+                            <p class="text-sm font-medium">{{ fmt(rec.datetime_in) }} – {{ fmt(rec.datetime_out) }}</p>
+                            {% if t.ticket_type == 'missing_task' %}
+                            <p class="text-xs text-slate-500 truncate" title="{{ rec.task_report or '' }}">Task: {{ rec.task_report or '(none)' }}</p>
+                            {% endif %}
+                        {% else %}
+                            <p class="text-sm text-slate-400 italic">No attendance record</p>
+                        {% endif %}
+                    </div>
+                    <div>
+                        {% if t.proposed_time_in or t.proposed_time_out %}
+                            <p class="text-xs text-slate-500">Proposed Times</p>
+                            <p class="text-sm font-medium">{{ fmt(t.proposed_time_in) }} – {{ fmt(t.proposed_time_out) }}</p>
+                        {% elif t.proposed_task_report %}
+                            <p class="text-xs text-slate-500">Proposed Task Report</p>
+                            <p class="text-sm font-medium truncate" title="{{ t.proposed_task_report }}">{{ t.proposed_task_report }}</p>
+                        {% elif t.ticket_type == 'other' %}
+                            <p class="text-xs text-slate-500">Proposed Change</p>
+                            <p class="text-sm text-slate-500 italic">Manual fix — see reason</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <p class="text-xs text-slate-500">Employee's Reason</p>
+                    <p class="text-sm text-slate-700 bg-slate-50 rounded p-2 mt-1 whitespace-pre-line">{{ t.reason }}</p>
+                </div>
+
+                {% if own %}
+                    <p class="text-xs text-slate-500 italic"><i class="fa-solid fa-circle-info"></i> This is your own ticket — another admin or a super-admin must review it.</p>
+                {% else %}
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <form method="POST" action="{{ url_for('approve_ticket', ticket_id=t.id) }}" class="flex-1"
+                              data-confirm="{% if t.ticket_type == 'other' %}Approve this ticket from {{ t.user.full_name }}? No automatic change is made for 'Other' tickets — apply any fix manually.{% else %}Approve this ticket from {{ t.user.full_name }}? The attendance fix will be applied automatically.{% endif %}"
+                              data-confirm-title="Approve Ticket"
+                              data-confirm-icon="question"
+                              data-confirm-button="Yes, approve">
+                            <input type="hidden" name="admin_note" value="">
+                            <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium text-sm">
+                                <i class="fa-solid fa-check"></i> {% if t.ticket_type == 'other' %}Approve{% else %}Approve &amp; Apply{% endif %}
+                            </button>
+                        </form>
+                        {{ reason_button(url_for('reject_ticket', ticket_id=t.id), t, 'Reject', '#dc2626', 'fa-xmark',
+                                         'flex-1 bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg font-medium text-sm') }}
+                        {% if current_user.is_super_admin %}
+                            {{ delete_form(t, 'w-full bg-red-100 hover:bg-red-200 text-red-700 px-3 py-2 rounded-lg font-medium text-sm', '') }}
+                        {% else %}
+                            {{ reason_button(url_for('void_ticket', ticket_id=t.id), t, 'Void', '#ea580c', 'fa-ban',
+                                             'bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-2 rounded-lg font-medium text-sm', False) }}
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        </div>
+        {% else %}
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-center text-slate-400">No pending tickets. 🎉</div>
+        {% endif %}
+    </section>
+
+    <!-- Recent decisions -->
+    {% if recent %}
+    <section>
+        <h2 class="text-xl font-semibold text-slate-800 mb-4">Recent Decisions</h2>
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+            <table class="w-full min-w-[820px]">
+                <thead class="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Employee</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Type</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Target Date</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Status</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">By</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">When</th>
+                        <th class="text-left px-4 py-3 text-sm font-semibold">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in recent %}
+                    <tr class="border-b border-slate-100 align-top">
+                        <td class="px-4 py-3 text-sm">{{ t.user.full_name }}</td>
+                        <td class="px-4 py-3 text-sm">{{ t.type_label }}</td>
+                        <td class="px-4 py-3 text-sm whitespace-nowrap">{{ t.target_date.strftime('%b %d, %Y') }}</td>
+                        <td class="px-4 py-3">
+                            <span class="{{ t.status_badge_class }} px-2 py-1 rounded-full text-xs font-semibold uppercase">{{ t.status }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-sm">{{ t.reviewer.full_name if t.reviewer else '—' }}</td>
+                        <td class="px-4 py-3 text-sm whitespace-nowrap">{{ t.reviewed_at.strftime('%b %d') if t.reviewed_at else '—' }}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-3 whitespace-nowrap">
+                                <button type="button" data-ticket-details='{{ t.details()|tojson }}'
+                                        class="text-blue-600 hover:underline text-xs">
+                                    <i class="fa-solid fa-eye"></i> View
+                                </button>
+                                {% if current_user.is_super_admin %}
+                                    {{ delete_form(t, 'text-red-600 hover:underline text-xs', ' Delete') }}
+                                {% elif t.status != 'voided' %}
+                                    {{ reason_button(url_for('void_ticket', ticket_id=t.id), t, 'Void', '#ea580c', 'fa-ban',
+                                                     'text-orange-600 hover:underline text-xs') }}
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+
+<script>
+// Reject / Void: SweetAlert prompt for a required reason, then POST it as admin_note.
+document.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-reason-url]');
+    if (!btn) return;
+    const verb = btn.dataset.verb;
+    const voiding = verb === 'Void';
+    Swal.fire({
+        title: verb + ' Ticket',
+        html: '<p style="margin-bottom:0.75rem">' + (voiding ? 'Voiding' : 'Rejecting') +
+              ' ticket from <strong>' + escapeHtml(btn.dataset.name) + '</strong>.</p>' +
+              (voiding && btn.dataset.approved
+                  ? '<p style="font-size:0.85em;color:#64748b">The attendance change this ticket applied will NOT be reverted — edit the record manually if needed.</p>'
+                  : ''),
+        input: 'textarea',
+        inputPlaceholder: 'Reason for ' + (voiding ? 'voiding' : 'rejection') + ' (required)...',
+        showCancelButton: true,
+        confirmButtonText: verb,
+        confirmButtonColor: btn.dataset.color,
+        cancelButtonColor: '#64748b',
+        inputValidator: (v) => (!v || !v.trim()) ? 'Please provide a reason.' : undefined,
+    }).then(function (result) {
+        if (!result.isConfirmed) return;
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = btn.dataset.reasonUrl;
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'admin_note';
+        input.value = result.value.trim();
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+    });
+});
+</script>
+{% endblock %}
