@@ -1,0 +1,24 @@
+{# Tier badge. Stored values are mixed legacy/new names ('Bronze' or 'Essential', etc.),
+   so normalize by rank: bronze/essential=1, silver/advanced=2, gold/elite=3. #}
+{% set _TIER_RANKS = {'bronze': 1, 'essential': 1, 'silver': 2, 'advanced': 2, 'gold': 3, 'elite': 3} %}
+
+{% macro tier_badge(tier_value) %}
+    {%- set rank = _TIER_RANKS.get((tier_value or '')|lower) -%}
+    {%- if rank == 1 -%}
+        <span title="Bronze tier" class="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold whitespace-nowrap">
+            <span>🥉</span><span>Essential</span>
+        </span>
+    {%- elif rank == 2 -%}
+        <span title="Silver tier" class="inline-flex items-center gap-1 px-2 py-1 bg-slate-200 text-slate-800 rounded-full text-xs font-semibold whitespace-nowrap">
+            <span>🥈</span><span>Advanced</span>
+        </span>
+    {%- elif rank == 3 -%}
+        <span title="Gold tier" class="inline-flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-semibold whitespace-nowrap">
+            <span>🥇</span><span>Elite</span>
+        </span>
+    {%- elif tier_value -%}
+        <span class="px-2 py-1 bg-slate-100 text-slate-500 rounded-full text-xs">{{ tier_value }}</span>
+    {%- else -%}
+        <span class="text-slate-400">—</span>
+    {%- endif -%}
+{% endmacro %}

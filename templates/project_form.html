@@ -48,16 +48,12 @@
                 <label class="block text-sm font-medium text-slate-700 mb-1">Package Tier</label>
                 <select name="package_tier" class="w-full border border-slate-300 rounded px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     <option value="">— Select —</option>
-                    <optgroup label="New Scheme">
-                        {% for t in ['Essential','Advanced','Elite'] %}
-                        <option value="{{ t }}" {% if project and project.package_tier == t %}selected{% endif %}>{{ t }}</option>
-                        {% endfor %}
-                    </optgroup>
-                    <optgroup label="Legacy">
-                        {% for t in ['Bronze','Silver','Gold'] %}
-                        <option value="{{ t }}" {% if project and project.package_tier == t %}selected{% endif %}>{{ t }}</option>
-                        {% endfor %}
-                    </optgroup>
+                    {# One option per rank. A project already on this rank keeps its stored name
+                       (e.g. legacy 'Bronze') so re-saving doesn't rewrite it. #}
+                    {% for rank, new_name, label in [(1, 'Essential', '🥉 Essential (Bronze)'), (2, 'Advanced', '🥈 Advanced (Silver)'), (3, 'Elite', '🥇 Elite (Gold)')] %}
+                    {% set on_rank = project and project.tier_rank == rank %}
+                    <option value="{{ project.package_tier if on_rank else new_name }}" {% if on_rank %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
                 </select>
             </div>
             <div>
@@ -121,4 +117,55 @@
         </div>
     </form>
 </div>
+
+{% if project and project.id %}
+<div id="addons" class="bg-white rounded-lg shadow p-6 max-w-3xl mt-6">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+            <h2 class="text-lg font-semibold text-slate-800">Add-Ons</h2>
+            <p class="text-xs text-slate-500">Subscriptions and extras for {{ project.display_name }}</p>
+        </div>
+        <a href="{{ url_for('addon_new', project_id=project.id) }}"
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
+            <i class="fa-solid fa-plus"></i> Add Add-On
+        </a>
+    </div>
+
+    {% if project.addons %}
+    <div class="space-y-2">
+        {# Grouped by status (alphabetical, so 'active' comes first), then by name #}
+        {% for a in project.addons|sort(attribute='name')|sort(attribute='status') %}
+        <div class="border border-slate-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-4 min-w-0">
+                <i class="fa-solid {{ a.category_icon }} text-slate-500 text-xl w-6 text-center"></i>
+                <div class="min-w-0">
+                    <p class="font-semibold text-slate-800 truncate">{{ a.name }}</p>
+                    <p class="text-xs text-slate-500">
+                        {{ a.category_label }}
+                        {% if a.duration_label %} · {{ a.duration_label }}{% endif %}
+                        {% if a.end_date %} · Expires {{ a.end_date.strftime('%b %d, %Y').replace(' 0', ' ') }}{% endif %}
+                        {% include '_addon_expiry.html' %}
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="font-semibold text-slate-800">${{ "%.2f"|format(a.price_usd) }}</span>
+                <span class="{{ a.status_badge_class }} px-2 py-1 rounded-full text-xs font-semibold uppercase">{{ a.status }}</span>
+                <a href="{{ url_for('addon_edit', addon_id=a.id) }}" class="text-blue-600 hover:underline text-xs">Edit</a>
+                <form method="POST" action="{{ url_for('addon_delete', addon_id=a.id) }}" class="inline"
+                      data-confirm="Delete add-on '{{ a.name }}'? This cannot be undone."
+                      data-confirm-title="Delete Add-On"
+                      data-confirm-icon="warning"
+                      data-confirm-button="Yes, delete">
+                    <button type="submit" class="text-red-600 hover:underline text-xs">Delete</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-center text-sm text-slate-400 py-6">No add-ons yet. Click "Add Add-On" to add one.</p>
+    {% endif %}
+</div>
+{% endif %}
 {% endblock %}

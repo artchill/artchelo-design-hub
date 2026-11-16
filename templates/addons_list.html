@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% block title %}Add-Ons{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">All Add-Ons</h1>
+        <p class="text-sm text-slate-500">Manage subscriptions and extras across all projects.</p>
+    </div>
+    <a href="{{ url_for('addon_new_global') }}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium text-sm">
+        <i class="fa-solid fa-plus"></i> New Add-On
+    </a>
+</div>
+
+<!-- Stats -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <a href="{{ url_for('addons_list', status='active') }}" class="bg-white rounded-lg shadow p-4 hover:ring-2 hover:ring-green-200">
+        <p class="text-xs text-slate-500 uppercase">Active</p>
+        <p class="text-2xl font-bold text-green-600">{{ stats.total_active }}</p>
+    </a>
+    <a href="{{ url_for('addons_list', expiring='30') }}" class="bg-white rounded-lg shadow p-4 hover:ring-2 hover:ring-amber-200">
+        <p class="text-xs text-slate-500 uppercase">Expiring in 30 days</p>
+        <p class="text-2xl font-bold text-amber-600">{{ stats.expiring_30 }}</p>
+    </a>
+    <a href="{{ url_for('addons_list', status='expired') }}" class="bg-white rounded-lg shadow p-4 hover:ring-2 hover:ring-red-200">
+        <p class="text-xs text-slate-500 uppercase">Expired</p>
+        <p class="text-2xl font-bold text-red-600">{{ stats.expired }}</p>
+    </a>
+    <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-slate-500 uppercase">Active Value</p>
+        <p class="text-2xl font-bold text-slate-800">${{ "{:,.0f}".format(stats.total_mrr) }}</p>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="bg-white rounded-lg shadow p-4 mb-4">
+    <form method="GET" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Category</label>
+            <select name="category" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white">
+                <option value="">All categories</option>
+                {% for key, label in categories.items() %}
+                <option value="{{ key }}" {% if filter_category == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Status</label>
+            <select name="status" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white">
+                <option value="">All statuses</option>
+                {% for s in statuses %}
+                <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">Expiring in</label>
+            <select name="expiring" class="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white">
+                <option value="">Any time</option>
+                {% for d in ('30', '60', '90') %}
+                <option value="{{ d }}" {% if filter_expiring == d %}selected{% endif %}>{{ d }} days</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="flex gap-2">
+            <button type="submit" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-sm">Filter</button>
+            <a href="{{ url_for('addons_list') }}" class="flex-1 text-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded text-sm">Reset</a>
+        </div>
+    </form>
+</div>
+
+<div class="bg-white rounded-lg shadow p-6">
+    <p class="text-xs text-slate-500 mb-3">{{ addons|length }} add-on{{ 's' if addons|length != 1 }}</p>
+    <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+            <thead class="bg-slate-100 text-slate-700">
+                <tr>
+                    <th class="px-3 py-2 text-left">Name</th>
+                    <th class="px-3 py-2 text-left">Project</th>
+                    <th class="px-3 py-2 text-left">Category</th>
+                    <th class="px-3 py-2 text-left">Duration</th>
+                    <th class="px-3 py-2 text-right">Price</th>
+                    <th class="px-3 py-2 text-left">End Date</th>
+                    <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-left">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in addons %}
+                <tr class="border-t">
+                    <td class="px-3 py-2 font-medium">{{ a.name }}</td>
+                    <td class="px-3 py-2 text-xs">
+                        <a href="{{ url_for('project_edit', project_id=a.project_id) }}#addons" class="text-blue-600 hover:underline">{{ a.project.display_name }}</a>
+                    </td>
+                    <td class="px-3 py-2 text-xs whitespace-nowrap">
+                        <i class="fa-solid {{ a.category_icon }} text-slate-500 w-4 text-center"></i> {{ a.category_label }}
+                    </td>
+                    <td class="px-3 py-2 text-xs">{{ a.duration_label or '—' }}</td>
+                    <td class="px-3 py-2 text-right">${{ "%.2f"|format(a.price_usd) }}</td>
+                    <td class="px-3 py-2 text-xs whitespace-nowrap">
+                        {% if a.end_date %}{{ a.end_date.strftime('%b %d, %Y').replace(' 0', ' ') }}{% include '_addon_expiry.html' %}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2">
+                        <span class="{{ a.status_badge_class }} px-2 py-1 rounded-full text-xs font-semibold uppercase">{{ a.status }}</span>
+                    </td>
+                    <td class="px-3 py-2 text-xs whitespace-nowrap">
+                        {% if a.status in ('active', 'expired') %}
+                        <form method="POST" action="{{ url_for('addon_renew', addon_id=a.id) }}" class="inline"
+                              data-confirm="Renew '{{ a.name }}'? This marks the current one as 'renewed' and creates a new active add-on for the next period."
+                              data-confirm-title="Renew Add-On"
+                              data-confirm-icon="question"
+                              data-confirm-button="Yes, renew">
+                            <button type="submit" class="text-green-600 hover:underline mr-2" title="Create the next period">
+                                <i class="fa-solid fa-rotate"></i> Renew
+                            </button>
+                        </form>
+                        {% endif %}
+                        <a href="{{ url_for('addon_edit', addon_id=a.id) }}" class="text-blue-600 hover:underline">Edit</a>
+                        <form method="POST" action="{{ url_for('addon_delete', addon_id=a.id) }}" class="inline"
+                              data-confirm="Delete add-on '{{ a.name }}'? This cannot be undone."
+                              data-confirm-title="Delete Add-On"
+                              data-confirm-icon="warning"
+                              data-confirm-button="Yes, delete">
+                            <button type="submit" class="text-red-600 hover:underline ml-2">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="px-3 py-8 text-center text-slate-400">No add-ons found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

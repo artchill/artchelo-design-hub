@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% block title %}New Add-On{% endblock %}
+{% block content %}
+{% set category_emoji = {
+    'domain': '🌐', 'hosting': '🖥️', 'ssl': '🔒', 'email': '✉️', 'maintenance': '🔧',
+    'content': '📄', 'seo': '📈', 'social': '📱', 'logo': '🎨', 'copywriting': '✍️', 'custom': '📦',
+} %}
+{% set input_cls = 'w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none' %}
+<div class="flex items-center justify-between mb-6 max-w-2xl">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">New Add-On</h1>
+        <p class="text-sm text-slate-500">Create an add-on and link it to a project.</p>
+    </div>
+    <a href="{{ url_for('addons_list') }}" class="text-sm text-slate-600 hover:underline">← Back to Add-Ons</a>
+</div>
+
+{% if not projects %}
+<div class="bg-amber-50 border border-amber-200 rounded p-4 mb-4 max-w-2xl">
+    <p class="text-sm text-amber-800">
+        No projects yet. <a href="{{ url_for('project_new') }}" class="underline font-medium">Create a project first →</a>
+    </p>
+</div>
+{% endif %}
+
+<div class="bg-white rounded-lg shadow p-6 max-w-2xl">
+    <form method="POST" class="space-y-4">
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Project <span class="text-red-600">*</span></label>
+            <select name="project_id" required class="{{ input_cls }} bg-white">
+                <option value="">— Select a project —</option>
+                {% for p in projects %}
+                <option value="{{ p.id }}" {% if form.get('project_id')|string == p.id|string %}selected{% endif %}>
+                    {{ p.client.name }}{% if p.domain %} — {{ p.domain }}{% endif %}
+                </option>
+                {% endfor %}
+            </select>
+            <p class="text-xs text-slate-500 mt-1">Which project is this add-on for? Listed as client — domain.</p>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Name <span class="text-red-600">*</span></label>
+            <input type="text" name="name" required maxlength="200" value="{{ form.get('name', '') }}"
+                   placeholder="e.g., Domain Subscription - example.com" class="{{ input_cls }}">
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Category <span class="text-red-600">*</span></label>
+                <select name="category" required class="{{ input_cls }} bg-white">
+                    <option value="">— Select category —</option>
+                    {% for key, label in categories.items() %}
+                    <option value="{{ key }}" {% if form.get('category') == key %}selected{% endif %}>{{ category_emoji.get(key, '') }} {{ 'Other / Custom' if key == 'custom' else label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Duration</label>
+                <input type="text" name="duration_label" maxlength="50" list="duration-options"
+                       value="{{ form.get('duration_label', '') }}" placeholder="e.g., 1 year, Monthly" class="{{ input_cls }}">
+                <datalist id="duration-options">
+                    <option value="1 year"><option value="2 years"><option value="Monthly"><option value="One-time">
+                </datalist>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Price (USD)</label>
+                <input type="number" name="price_usd" step="0.01" min="0" value="{{ form.get('price_usd', '0.00') }}" class="{{ input_cls }}">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                <select name="status" class="{{ input_cls }} bg-white">
+                    {% for s in statuses %}
+                    <option value="{{ s }}" {% if form.get('status', 'active') == s %}selected{% endif %}>{{ s|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                <input type="date" name="start_date" value="{{ form.get('start_date', '') }}" class="{{ input_cls }}">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">End Date</label>
+                <input type="date" name="end_date" value="{{ form.get('end_date', '') }}" class="{{ input_cls }}">
+                <p class="text-xs text-slate-500 mt-1">Used for expiry warnings (30 / 60 / 90 days).</p>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+            <textarea name="notes" rows="3" class="{{ input_cls }}">{{ form.get('notes', '') }}</textarea>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium">
+                <i class="fa-solid fa-plus"></i> Create Add-On
+            </button>
+            <a href="{{ url_for('addons_list') }}"
+               class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded font-medium">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

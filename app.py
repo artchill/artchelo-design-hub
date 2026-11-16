@@ -21,7 +21,7 @@ from sqlalchemy import extract, func
 from models import (
     db, User, Attendance, LeaveDay, LeaveRequest, AttendanceTicket,
     Client, SalesLead, SalesInvoice,
-    Project, DomainRenewal, ProjectStatusHistory,
+    Project, DomainRenewal, ProjectStatusHistory, AddOn,
 )
 
 app = Flask(__name__)
@@ -2301,10 +2301,14 @@ def dashboard():
     top_clients_labels = [name for name, _ in top_clients_query]
     top_clients_data = [float(amt) for _, amt in top_clients_query]
 
+    # Group by rank so legacy Bronze/Silver/Gold merge with Essential/Advanced/Elite
     tier_query = db.session.query(
-        Project.package_tier, func.count(Project.id)
-    ).group_by(Project.package_tier).all()
-    tier_data = {t or 'Unknown': c for t, c in tier_query}
+        Project.tier_rank, func.count(Project.id)
+    ).group_by(Project.tier_rank).order_by(Project.tier_rank.asc().nulls_last()).all()
+    tier_labels = {1: '🥉 Essential', 2: '🥈 Advanced', 3: '🥇 Elite'}
+    # Lists, not a dict: tojson sorts dict keys, which would scramble the rank order
+    tier_data = {'labels': [tier_labels.get(r, 'No tier') for r, _ in tier_query],
+                 'counts': [c for _, c in tier_query]}
 
     workload_query = db.session.query(
         User.fname, func.count(Project.id)
@@ -2375,7 +2379,8 @@ def projects_list():
     if status_filter:
         query = query.filter(Project.status == status_filter)
     if tier_filter:
-        query = query.filter(Project.package_tier == tier_filter)
+        # Filter by rank so 'Essential' also matches legacy 'Bronze' rows (and vice versa)
+        query = query.filter(Project.tier_rank == TIER_RANK.get(tier_filter))
     if dev_filter:
         query = query.filter(
             Project.assigned_developer_id == get_visible_user_or_404(int(dev_filter)).id)
@@ -2536,6 +2541,220 @@ def project_delete(project_id):
     db.session.commit()
     flash('Project deleted.', 'success')
     return redirect(url_for('projects_list'))
+
+
+# ---------- Project add-ons ----------
+
+ADDON_STATUSES = tuple(AddOn.STATUS_BADGES)
+ADDON_EXPIRING_WINDOWS = ('30', '60', '90')
+
+
+def parse_addon_form(form):
+    """Validate the add-on form. Returns (fields, errors); used by both create and edit."""
+    errors = []
+    name = form.get('name', '').strip()
+    category = form.get('category', '').strip()
+    status = form.get('status', 'active').strip()
+    if not name:
+        errors.append('Name is required.')
+    if category not in AddOn.CATEGORY_LABELS:
+        errors.append('Please choose a category.')
+    if status not in ADDON_STATUSES:
+        errors.append('Invalid status.')
+    try:
+        price_usd = round(float(form.get('price_usd', '').strip() or 0), 2)
+        if price_usd < 0:
+            errors.append('Price cannot be negative.')
+    except ValueError:
+        price_usd = 0.0
+        errors.append('Price must be a number.')
+
+    dates = {}
+    for key, label in (('start_date', 'start'), ('end_date', 'end')):
+        raw = form.get(key, '').strip()
+        dates[key] = None
+        if raw:
+            try:
+                dates[key] = datetime.strptime(raw, '%Y-%m-%d').date()
+            except ValueError:
+                errors.append(f'Invalid {label} date.')
+    if dates['start_date'] and dates['end_date'] and dates['end_date'] < dates['start_date']:
+        errors.append('End date cannot be before start date.')
+
+    fields = dict(
+        name=name, category=category, status=status, price_usd=price_usd,
+        duration_label=form.get('duration_label', '').strip() or None,
+        notes=form.get('notes', '').strip() or None,
+        **dates,
+    )
+    return fields, errors
+
+
+@app.route('/addons')
+@role_required('admin')
+def addons_list():
+    category = request.args.get('category', '').strip()
+    status = request.args.get('status', '').strip()
+    expiring = request.args.get('expiring', '').strip()
+    today = date.today()
+
+    def expiring_within(days):
+        return (AddOn.status == 'active', AddOn.end_date >= today,
+                AddOn.end_date <= today + timedelta(days=days))
+
+    query = AddOn.query.join(Project)
+    if category:
+        query = query.filter(AddOn.category == category)
+    if status:
+        query = query.filter(AddOn.status == status)
+    if expiring in ADDON_EXPIRING_WINDOWS:
+        query = query.filter(*expiring_within(int(expiring)))
+    addons = query.order_by(AddOn.end_date.asc().nulls_last(), AddOn.name).all()
+
+    stats = {
+        'total_active': AddOn.query.filter_by(status='active').count(),
+        'expiring_30': AddOn.query.filter(*expiring_within(30)).count(),
+        'expired': AddOn.query.filter_by(status='expired').count(),
+        'total_mrr': db.session.query(func.coalesce(func.sum(AddOn.price_usd), 0))
+                     .filter(AddOn.status == 'active').scalar(),
+    }
+    return render_template('addons_list.html', addons=addons, stats=stats,
+                           categories=AddOn.CATEGORY_LABELS, statuses=ADDON_STATUSES,
+                           filter_category=category, filter_status=status,
+                           filter_expiring=expiring)
+
+
+@app.route('/projects/<int:project_id>/addons/new', methods=['GET', 'POST'])
+@role_required('admin')
+def addon_new(project_id):
+    project = Project.query.get_or_404(project_id)
+    if request.method == 'POST':
+        fields, errors = parse_addon_form(request.form)
+        if errors:
+            for e in errors:
+                flash(e, 'error')
+            return render_template('addon_form.html', project=project, addon=None,
+                                   form=request.form, categories=AddOn.CATEGORY_LABELS,
+                                   statuses=ADDON_STATUSES)
+        db.session.add(AddOn(project_id=project.id, **fields))
+        db.session.commit()
+        flash(f'Add-on "{fields["name"]}" added to {project.display_name}.', 'success')
+        return redirect(url_for('project_edit', project_id=project.id))
+    return render_template('addon_form.html', project=project, addon=None, form={},
+                           categories=AddOn.CATEGORY_LABELS, statuses=ADDON_STATUSES)
+
+
+@app.route('/addons/new', methods=['GET', 'POST'])
+@role_required('admin')
+def addon_new_global():
+    """Create an add-on from the global list; the project is picked in the form."""
+    projects = (Project.query.join(Client, Project.client_id == Client.id)
+                .order_by(Client.name, Project.domain).all())
+    ctx = dict(projects=projects, categories=AddOn.CATEGORY_LABELS, statuses=ADDON_STATUSES)
+
+    if request.method == 'POST':
+        fields, errors = parse_addon_form(request.form)
+        project = None
+        try:
+            project = db.session.get(Project, int(request.form.get('project_id', '')))
+            if not project:
+                errors.insert(0, 'Selected project not found.')
+        except ValueError:
+            errors.insert(0, 'Please select a project.')
+        if errors:
+            for e in errors:
+                flash(e, 'error')
+            return render_template('addon_new_global.html', form=request.form, **ctx)
+        db.session.add(AddOn(project_id=project.id, **fields))
+        db.session.commit()
+        flash(f'Add-on "{fields["name"]}" added to {project.display_name}.', 'success')
+        return redirect(url_for('addons_list'))
+
+    return render_template('addon_new_global.html', form={}, **ctx)
+
+
+@app.route('/addons/<int:addon_id>/renew', methods=['POST'])
+@role_required('admin')
+def addon_renew(addon_id):
+    """Close out the current period (status 'renewed') and start an identical next one."""
+    original = AddOn.query.get_or_404(addon_id)
+    back = redirect(safe_referrer(url_for('addons_list')))
+    # Server-side too, so a double-click or stale page can't renew the same period twice
+    if original.status not in ('active', 'expired'):
+        flash(f'Only active or expired add-ons can be renewed ("{original.name}" is {original.status}).', 'error')
+        return back
+
+    # Next period starts the day after the old one ends (or today if it had no end date)
+    new_start = original.end_date + timedelta(days=1) if original.end_date else date.today()
+    new_end = None
+    if original.start_date and original.end_date:
+        new_end = new_start + (original.end_date - original.start_date)   # same length
+
+    ended = original.end_date.strftime('%b %d, %Y') if original.end_date else 'unknown'
+    renewal_note = f'Renewed from previous period ending {ended}.'
+    original.status = 'renewed'
+    db.session.add(AddOn(
+        project_id=original.project_id,
+        name=original.name,
+        category=original.category,
+        duration_label=original.duration_label,
+        price_usd=original.price_usd,
+        start_date=new_start,
+        end_date=new_end,
+        status='active',
+        notes=f'{renewal_note}\n{original.notes}' if original.notes else renewal_note,
+    ))
+    db.session.commit()
+
+    msg = f'Renewed "{original.name}" — new period starts {new_start.strftime("%b %d, %Y")}'
+    msg += f' and ends {new_end.strftime("%b %d, %Y")}.' if new_end else ' (no end date — set one via Edit).'
+    flash(msg, 'success')
+    return back
+
+
+@app.route('/addons/<int:addon_id>/edit', methods=['GET', 'POST'])
+@role_required('admin')
+def addon_edit(addon_id):
+    addon = AddOn.query.get_or_404(addon_id)
+    project = addon.project
+    if request.method == 'POST':
+        fields, errors = parse_addon_form(request.form)
+        if errors:
+            for e in errors:
+                flash(e, 'error')
+            return render_template('addon_form.html', project=project, addon=addon,
+                                   form=request.form, categories=AddOn.CATEGORY_LABELS,
+                                   statuses=ADDON_STATUSES)
+        for key, value in fields.items():
+            setattr(addon, key, value)
+        db.session.commit()
+        flash(f'Add-on "{addon.name}" updated.', 'success')
+        return redirect(url_for('project_edit', project_id=project.id))
+
+    form = {
+        'name': addon.name,
+        'category': addon.category,
+        'duration_label': addon.duration_label or '',
+        'price_usd': '%.2f' % addon.price_usd,
+        'start_date': addon.start_date.isoformat() if addon.start_date else '',
+        'end_date': addon.end_date.isoformat() if addon.end_date else '',
+        'status': addon.status,
+        'notes': addon.notes or '',
+    }
+    return render_template('addon_form.html', project=project, addon=addon, form=form,
+                           categories=AddOn.CATEGORY_LABELS, statuses=ADDON_STATUSES)
+
+
+@app.route('/addons/<int:addon_id>/delete', methods=['POST'])
+@role_required('admin')
+def addon_delete(addon_id):
+    addon = AddOn.query.get_or_404(addon_id)
+    project_id, name = addon.project_id, addon.name
+    db.session.delete(addon)
+    db.session.commit()
+    flash(f'Add-on "{name}" deleted.', 'success')
+    # Return to wherever the delete was clicked (project page or global list)
+    return redirect(safe_referrer(url_for('project_edit', project_id=project_id)))
 
 
 # ---------- Error pages ----------

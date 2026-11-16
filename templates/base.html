@@ -135,6 +135,10 @@
                     <i class="fa-solid fa-globe w-5 text-center"></i>
                     <span>Website Projects</span>
                 </a>
+                <a href="{{ url_for('addons_list') }}" class="sidebar-link">
+                    <i class="fa-solid fa-box w-5 text-center"></i>
+                    <span>Add-Ons</span>
+                </a>
             {% else %}
                 <a href="{{ url_for('employee_dashboard') }}" class="sidebar-link">
                     <i class="fa-solid fa-user-clock w-5 text-center"></i>

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_tier_badge.html' import tier_badge %}
 {% block title %}Dashboard - Artchelo Design{% endblock %}
 {% block main_attrs %}style="background: linear-gradient(135deg, #f8fafc 0%, #faf5ff 50%, #fdf2f8 100%);"{% endblock %}
 {% block content %}
@@ -236,7 +237,7 @@
                         New project: <span class="font-medium">{{ p.domain or (p.client.name if p.client else 'Untitled') }}</span>
                     </div>
                     <div class="text-xs text-slate-500 truncate">
-                        {{ p.package_tier or 'No tier' }} · {{ p.status|replace('_', ' ')|capitalize }}
+                        {{ tier_badge(p.package_tier) if p.package_tier else 'No tier' }} · {{ p.status|replace('_', ' ')|capitalize }}
                         {% if p.assigned_developer %} · {{ p.assigned_developer.fname }}{% endif %}
                     </div>
                 </div>
@@ -460,13 +461,13 @@ function renderCharts() {
 
     // Chart 6: Projects by Tier
     const tierData = {{ tier_data|tojson }};
-    const nTiers = Object.keys(tierData).length;
+    const nTiers = tierData.labels.length;
     new Chart(document.getElementById('chart-tier'), {
         type: 'doughnut',
         data: {
-            labels: Object.keys(tierData),
+            labels: tierData.labels,
             datasets: [{
-                data: Object.values(tierData),
+                data: tierData.counts,
                 backgroundColor: cycle(pastelColors, nTiers),
                 hoverBorderColor: cycle(pastelBorders, nTiers),
             }]

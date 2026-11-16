@@ -337,6 +337,100 @@ class Project(db.Model):
     status_history = db.relationship('ProjectStatusHistory', backref='project', lazy=True,
                                      cascade='all, delete-orphan')
 
+    @property
+    def display_name(self):
+        """Projects have no name column: show the domain, else the client name."""
+        return self.domain or (self.client.name if self.client else f'Project #{self.id}')
+
+
+class AddOn(db.Model):
+    """A subscription or extra sold with a project (domain, hosting, SEO, ...)."""
+    __tablename__ = 'add_ons'
+
+    CATEGORY_LABELS = {
+        'domain': 'Domain',
+        'hosting': 'Hosting',
+        'ssl': 'SSL Certificate',
+        'email': 'Email Hosting',
+        'maintenance': 'Maintenance',
+        'content': 'Content Package',
+        'seo': 'SEO Package',
+        'social': 'Social Media',
+        'logo': 'Logo Design',
+        'copywriting': 'Copywriting',
+        'custom': 'Other',
+    }
+    CATEGORY_ICONS = {
+        'domain': 'fa-globe',
+        'hosting': 'fa-server',
+        'ssl': 'fa-lock',
+        'email': 'fa-envelope',
+        'maintenance': 'fa-wrench',
+        'content': 'fa-file-lines',
+        'seo': 'fa-magnifying-glass-chart',
+        'social': 'fa-hashtag',
+        'logo': 'fa-palette',
+        'copywriting': 'fa-pen',
+        'custom': 'fa-box',
+    }
+    STATUS_BADGES = {
+        'active': 'bg-green-100 text-green-700',
+        'pending': 'bg-amber-100 text-amber-700',
+        'expired': 'bg-red-100 text-red-700',
+        'cancelled': 'bg-slate-100 text-slate-500',
+        'renewed': 'bg-blue-100 text-blue-700',
+    }
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    category = db.Column(db.String(30), nullable=False)
+    duration_label = db.Column(db.String(50), nullable=True)   # '1 year', 'Monthly', 'One-time'
+    price_usd = db.Column(db.Float, nullable=False, default=0.0)
+    start_date = db.Column(db.Date, nullable=True)
+    end_date = db.Column(db.Date, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='active')
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+    # Cascade so deleting a project removes its add-ons (project_id is NOT NULL)
+    project = db.relationship('Project', backref=db.backref(
+        'addons', lazy=True, cascade='all, delete-orphan'))
+
+    @property
+    def category_label(self):
+        return self.CATEGORY_LABELS.get(self.category, self.category)
+
+    @property
+    def category_icon(self):
+        return self.CATEGORY_ICONS.get(self.category, 'fa-box')
+
+    @property
+    def status_badge_class(self):
+        return self.STATUS_BADGES.get(self.status, 'bg-slate-100 text-slate-500')
+
+    @property
+    def days_until_expiry(self):
+        if not self.end_date or self.status != 'active':
+            return None
+        return (self.end_date - date.today()).days
+
+    @property
+    def expiry_warning(self):
+        d = self.days_until_expiry
+        if d is None:
+            return None
+        if d < 0:
+            return 'expired'
+        if d <= 30:
+            return 'urgent'
+        if d <= 60:
+            return 'soon'
+        if d <= 90:
+            return 'upcoming'
+        return None
+
 
 class DomainRenewal(db.Model):
     __tablename__ = 'domain_renewals'

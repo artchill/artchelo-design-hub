@@ -1,0 +1,11 @@
+{# Expiry pill for an active add-on. Expects `a` (AddOn). #}
+{% set w = a.expiry_warning %}
+{% if w == 'expired' %}
+    <span class="ml-1 bg-red-200 text-red-800 px-1.5 py-0.5 rounded text-xs font-semibold" title="End date has passed">EXPIRED</span>
+{% elif w == 'urgent' %}
+    <span class="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs font-semibold" title="Expires within 30 days">{{ a.days_until_expiry }}d left</span>
+{% elif w == 'soon' %}
+    <span class="ml-1 bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-xs font-semibold" title="Expires within 60 days">{{ a.days_until_expiry }}d left</span>
+{% elif w == 'upcoming' %}
+    <span class="ml-1 bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-xs font-semibold" title="Expires within 90 days">{{ a.days_until_expiry }}d left</span>
+{% endif %}
