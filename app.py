@@ -2402,6 +2402,17 @@ def projects_list():
     )
 
 
+def parse_project_urls(form):
+    """Drive/Form URLs are optional: blank -> None; if given, must be http(s)."""
+    urls, errors = {}, []
+    for key, label in (('drive_url', 'Drive URL'), ('form_url', 'Form URL')):
+        value = form.get(key, '').strip() or None
+        if value and not value.lower().startswith(('http://', 'https://')):
+            errors.append(f'{label} must start with http:// or https://')
+        urls[key] = value
+    return urls, errors
+
+
 @app.route('/projects/new', methods=['GET', 'POST'])
 @role_required('admin')
 def project_new():
@@ -2415,6 +2426,7 @@ def project_new():
                                    project=None, clients=clients, devs=devs, is_new=True)
 
         tier = request.form.get('package_tier', '').strip() or None
+        urls, url_errors = parse_project_urls(request.form)
         project = Project(
             client_id=client_id,
             domain=request.form.get('domain', '').strip().lower() or None,
@@ -2422,9 +2434,8 @@ def project_new():
             package_tier=tier,
             tier_rank=TIER_RANK.get(tier),
             status=request.form.get('status', 'lead'),
-            drive_url=request.form.get('drive_url', '').strip() or None,
-            form_url=request.form.get('form_url', '').strip() or None,
             notes=request.form.get('notes', '').strip() or None,
+            **urls,
         )
         dev_id = request.form.get('assigned_developer_id', '').strip()
         if dev_id:
@@ -2447,6 +2458,13 @@ def project_new():
                     project.tat_days = (project.delivered_date - project.start_date).days
             except ValueError:
                 pass
+
+        if url_errors:
+            # Re-render with the unsaved project so the user's input is kept
+            for e in url_errors:
+                flash(e, 'error')
+            return render_template('project_form.html',
+                                   project=project, clients=clients, devs=devs, is_new=True)
 
         db.session.add(project)
         db.session.commit()
@@ -2492,8 +2510,8 @@ def project_edit(project_id):
             # submission means "unchanged", not "unassign".
             project.assigned_developer_id = None
 
-        project.drive_url = request.form.get('drive_url', '').strip() or None
-        project.form_url = request.form.get('form_url', '').strip() or None
+        urls, url_errors = parse_project_urls(request.form)
+        project.drive_url, project.form_url = urls['drive_url'], urls['form_url']
         project.notes = request.form.get('notes', '').strip() or None
 
         start_str = request.form.get('start_date', '').strip()
@@ -2518,6 +2536,15 @@ def project_edit(project_id):
         else:
             project.delivered_date = None
             project.tat_days = None
+
+        if url_errors:
+            # Show the form with the submitted values, then discard the unsaved changes
+            for e in url_errors:
+                flash(e, 'error')
+            html = render_template('project_form.html',
+                                   project=project, clients=clients, devs=devs, is_new=False)
+            db.session.rollback()
+            return html
 
         if old_status != project.status:
             db.session.add(ProjectStatusHistory(
