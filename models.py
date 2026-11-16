@@ -53,6 +53,11 @@ class User(UserMixin, db.Model):
         return self.employment_status == 'active'
 
     @property
+    def is_leave_eligible(self):
+        """Only full-time employees are eligible for VL/SL leaves."""
+        return self.employee_type == 'full-time'
+
+    @property
     def is_super_admin(self):
         return self.role == 'super-admin'
 

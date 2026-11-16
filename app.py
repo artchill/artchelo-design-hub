@@ -157,6 +157,11 @@ def get_visible_user_or_404(user_id):
     return user
 
 
+def home_url():
+    """Landing page for the current user (admins can't open the employee dashboard)."""
+    return url_for('dashboard' if current_user.is_admin_or_above else 'employee_dashboard')
+
+
 def safe_referrer(fallback):
     """request.referrer if it's on this host and not the current page, else fallback."""
     ref = request.referrer
@@ -534,7 +539,11 @@ def mark_leave():
     if not current_user.is_admin_or_above and target_user_id != current_user.id:
         flash('You can only mark leave for yourself.', 'error')
         return redirect(url_for(redirect_to, **redirect_kwargs))
-    get_visible_user_or_404(target_user_id)
+    target_user = get_visible_user_or_404(target_user_id)
+    if not target_user.is_leave_eligible:
+        flash(f'Cannot mark leave: {target_user.full_name} is not eligible for leaves '
+              f'(employment type: {target_user.employee_type or "not set"}).', 'error')
+        return redirect(url_for(redirect_to, **redirect_kwargs))
     if leave_type not in ('VL', 'SL'):
         flash('Leave type must be VL or SL.', 'error')
         return redirect(url_for(redirect_to, **redirect_kwargs))
@@ -608,7 +617,11 @@ def delete_leave(leave_id):
 @app.route('/leaves/request', methods=['GET', 'POST'])
 @login_required
 def leave_request():
-    """Any logged-in user can request leave for themselves; admins approve."""
+    """Full-time users can request leave for themselves; admins approve."""
+    if not current_user.is_leave_eligible:
+        flash('Leaves are only available for full-time employees. '
+              'Please contact your administrator for questions.', 'error')
+        return redirect(home_url())
     if request.method == 'GET':
         # Optional ?date=YYYY-MM-DD pre-fill (from the tracker's "Request Leave" links)
         prefill = {}
@@ -692,7 +705,10 @@ def leave_request():
 @app.route('/leaves/my-requests')
 @login_required
 def my_leave_requests():
-    reqs = (LeaveRequest.query.filter_by(user_id=current_user.id)
+    if not current_user.is_leave_eligible:
+        flash('Leaves are only available for full-time employees.', 'error')
+        return redirect(home_url())
+    reqs =(LeaveRequest.query.filter_by(user_id=current_user.id)
             .order_by(LeaveRequest.created_at.desc()).all())
     return render_template('my_leave_requests.html', requests=reqs,
                            balance=get_leave_balance(current_user.id))
@@ -748,6 +764,9 @@ def approve_leave_request(request_id):
     req, resp = _load_decidable_request(request_id, 'approved')
     if resp:
         return resp
+    if not req.user.is_leave_eligible:
+        flash(f'Cannot approve: {req.user.full_name} is no longer eligible for leaves.', 'error')
+        return redirect(url_for('pending_leave_requests'))
 
     new_dates = leave_request_new_dates(req)
     over = [c for c in leave_request_cap_check(req, new_dates) if c['exceeds']]
@@ -889,6 +908,10 @@ def edit_leave_request(request_id):
         return redirect(url_for('pending_leave_requests'))
     needs_rebuild = req.status == 'approved' and (
         leave_type != req.leave_type or start_date != req.start_date or end_date != req.end_date)
+    if needs_rebuild and not req.user.is_leave_eligible:
+        # Rebuilding would create new LeaveDays; history stays intact, reason-only edits still OK
+        flash(f'Cannot change dates/type: {req.user.full_name} is no longer eligible for leaves.', 'error')
+        return render_template('edit_leave_request.html', req=req, form=form)
 
     req.leave_type, req.start_date, req.end_date, req.reason = leave_type, start_date, end_date, reason
     prepend_admin_note(req, f'[EDITED by {current_user.full_name} on {datetime.now().strftime("%b %d, %Y %I:%M %p")}]')

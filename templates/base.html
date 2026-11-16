@@ -96,10 +96,12 @@
                         <span class="ml-auto bg-red-500 text-white text-xs rounded-full px-2 py-0.5 font-semibold">{{ pending_leave_count }}</span>
                     {% endif %}
                 </a>
+                {% if current_user.is_leave_eligible %}
                 <a href="{{ url_for('my_leave_requests') }}" class="sidebar-link">
                     <i class="fa-solid fa-calendar-plus w-5 text-center"></i>
                     <span>My Leaves</span>
                 </a>
+                {% endif %}
                 <a href="{{ url_for('pending_tickets') }}" class="sidebar-link">
                     <i class="fa-solid fa-ticket w-5 text-center"></i>
                     <span>Attendance Tickets</span>
@@ -138,6 +140,7 @@
                     <i class="fa-solid fa-user-clock w-5 text-center"></i>
                     <span>My Attendance</span>
                 </a>
+                {% if current_user.is_leave_eligible %}
                 <a href="{{ url_for('my_leave_requests') }}" class="sidebar-link">
                     <i class="fa-solid fa-calendar-plus w-5 text-center"></i>
                     <span>My Leaves</span>
@@ -145,6 +148,7 @@
                         <span class="ml-auto bg-blue-500 text-white text-xs rounded-full px-2 py-0.5 font-semibold">{{ employee_unseen_decisions }}</span>
                     {% endif %}
                 </a>
+                {% endif %}
                 <a href="{{ url_for('my_tickets') }}" class="sidebar-link">
                     <i class="fa-solid fa-ticket-simple w-5 text-center"></i>
                     <span>My Tickets</span>

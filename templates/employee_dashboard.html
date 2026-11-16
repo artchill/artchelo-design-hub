@@ -3,12 +3,15 @@
 {% block content %}
 <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
     <h1 class="text-2xl font-bold text-slate-800">Welcome, {{ current_user.fname }}!</h1>
+    {% if current_user.is_leave_eligible %}
     <a href="{{ url_for('leave_request') }}"
        class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium shadow-sm">
         <i class="fa-solid fa-calendar-plus"></i> Request Leave
     </a>
+    {% endif %}
 </div>
 
+{% if current_user.is_leave_eligible %}
 <!-- My Leaves summary -->
 <div class="bg-white rounded-lg shadow p-6 mb-6">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -38,6 +41,12 @@
     <p class="mt-3 text-sm text-slate-500">No leave requests yet.</p>
     {% endif %}
 </div>
+{% else %}
+<div class="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6 text-sm text-slate-600">
+    <i class="fa-solid fa-info-circle"></i>
+    As a {{ (current_user.employee_type or 'non-full-time')|replace('-', ' ')|title }} employee, leave benefits are not included in your employment type. Contact your administrator for questions.
+</div>
+{% endif %}
 
 <!-- Time In / Out Card -->
 <div class="bg-white rounded-lg shadow p-6 mb-6">
