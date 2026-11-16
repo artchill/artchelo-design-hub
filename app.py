@@ -22,6 +22,7 @@ from models import (
     db, User, Attendance, LeaveDay, LeaveRequest, AttendanceTicket,
     Client, SalesLead, SalesInvoice,
     Project, DomainRenewal, ProjectStatusHistory, AddOn,
+    PayrollRun, PayrollEntry, STANDARD_MONTHLY_HOURS,
 )
 
 app = Flask(__name__)
@@ -369,6 +370,26 @@ def build_month_calendar(user_id, year, month):
         })
 
     return calendar
+
+
+def parse_ot_hours(form):
+    """(regular, restday) OT hours from an attendance form. Blank/invalid/negative -> 0."""
+    def one(name):
+        try:
+            return max(float(form.get(name, '').strip() or 0), 0.0)
+        except ValueError:
+            return 0.0
+    return one('ot_hours_regular'), one('ot_hours_restday')
+
+
+def parse_actual_hours(form):
+    """Optional payroll hours override for an attendance day. Blank/invalid -> None (auto-calc)."""
+    try:
+        val = float(form.get('actual_hours', '').strip())
+    except ValueError:
+        return None
+    return val if 0 <= val <= 24 else None
+
 
 
 # ---------- Auth ----------
@@ -1773,6 +1794,8 @@ def admin_edit_attendance(record_id):
             record.datetime_out = None
             record.total_hours = None
         record.task_report = task_report or None
+        record.ot_hours_regular, record.ot_hours_restday = parse_ot_hours(request.form)
+        record.actual_hours = parse_actual_hours(request.form)
         record.edited_at = datetime.now()
         record.edited_by_id = current_user.id
         db.session.commit()
@@ -1854,6 +1877,9 @@ def admin_add_attendance(employee_id):
             datetime_out=new_datetime_out,
             day=new_datetime_in.strftime('%A'),
             task_report=task_report or None,
+            ot_hours_regular=parse_ot_hours(request.form)[0],
+            ot_hours_restday=parse_ot_hours(request.form)[1],
+            actual_hours=parse_actual_hours(request.form),
             # Backfilled records carry the same audit trail as edits
             edited_at=datetime.now(),
             edited_by_id=current_user.id,
@@ -2782,6 +2808,304 @@ def addon_delete(addon_id):
     flash(f'Add-on "{name}" deleted.', 'success')
     # Return to wherever the delete was clicked (project page or global list)
     return redirect(safe_referrer(url_for('project_edit', project_id=project_id)))
+
+
+# ---------- Payroll (Phase P-1) ----------
+# Admin + super-admin can manage payroll. Super-admins are never payroll subjects,
+# so their salaries are never visible to admins here.
+
+PAID_LEAVE_TYPES = ('VL', 'SL')
+
+
+def fmt_day(d, with_year=True):
+    """'Nov 1, 2026' / 'Nov 1' (no zero padding)."""
+    return d.strftime('%b %d, %Y' if with_year else '%b %d').replace(' 0', ' ')
+
+
+def payroll_entries_for(run):
+    """Run entries minus any super-admin rows (safety net for old data), sorted by last name."""
+    entries = [e for e in run.entries if e.user and not e.user.is_super_admin]
+    entries.sort(key=lambda e: (e.user.lname.lower(), e.user.fname.lower()))
+    return entries
+
+
+def refresh_payroll_totals(run):
+    entries = payroll_entries_for(run)
+    run.total_gross = round(sum(e.gross_pay for e in entries), 2)
+    run.total_deductions = round(sum(e.total_deductions for e in entries), 2)
+    run.total_net = round(sum(e.net_pay for e in entries), 2)
+    run.employee_count = len(entries)
+
+
+@app.route('/payroll')
+@role_required('admin')
+def payroll_list():
+    runs = PayrollRun.query.order_by(PayrollRun.cutoff_start.desc(), PayrollRun.id.desc()).all()
+    return render_template('payroll_list.html', runs=runs)
+
+
+@app.route('/payroll/new', methods=['GET', 'POST'])
+@role_required('admin')
+def payroll_new():
+    if request.method == 'POST':
+        notes = request.form.get('notes', '').strip() or None
+        errors = []
+        try:
+            cutoff_start = datetime.strptime(request.form.get('cutoff_start', '').strip(), '%Y-%m-%d').date()
+            cutoff_end = datetime.strptime(request.form.get('cutoff_end', '').strip(), '%Y-%m-%d').date()
+        except ValueError:
+            errors.append('Invalid date format.')
+            cutoff_start = cutoff_end = None
+        if cutoff_start and cutoff_end and cutoff_end < cutoff_start:
+            errors.append('End date cannot be before start date.')
+        if errors:
+            for e in errors:
+                flash(e, 'error')
+            return render_template('payroll_new.html', form=request.form,
+                                   default_start=request.form.get('cutoff_start', ''),
+                                   default_end=request.form.get('cutoff_end', ''))
+
+        overlap = PayrollRun.query.filter(PayrollRun.cutoff_start <= cutoff_end,
+                                          PayrollRun.cutoff_end >= cutoff_start).first()
+
+        run = PayrollRun(
+            title=f'Payroll: {fmt_day(cutoff_start, with_year=False)} - {fmt_day(cutoff_end)}',
+            cutoff_start=cutoff_start,
+            cutoff_end=cutoff_end,
+            notes=notes,
+            created_by_id=current_user.id,
+        )
+        db.session.add(run)
+        db.session.flush()
+
+        # CRITICAL: super-admins are excluded — only admin + employee roles get payroll entries,
+        # so admins can never see a super-admin's salary.
+        employees = User.query.filter(
+            User.role.in_(['admin', 'employee']),
+            User.employment_status == 'active',
+        ).all()
+
+        range_start = datetime.combine(cutoff_start, datetime.min.time())
+        range_end = datetime.combine(cutoff_end + timedelta(days=1), datetime.min.time())
+        open_days = 0  # attendance days with no time-out (paid at the 8 h fallback)
+        for emp in employees:
+            records = Attendance.query.filter(
+                Attendance.user_id == emp.id,
+                Attendance.datetime_in >= range_start,
+                Attendance.datetime_in < range_end,
+            ).all()
+            monthly_salary = emp.monthly_salary or 0  # full-time equivalent
+            # Days = distinct calendar dates with a time-in (guards against split records)
+            days_worked = len({a.datetime_in.date() for a in records})
+            hours_worked = sum(a.compute_hours_worked() for a in records)
+            open_days += sum(1 for a in records if a.datetime_out is None and a.actual_hours is None)
+            leave_days = LeaveDay.query.filter(
+                LeaveDay.user_id == emp.id,
+                LeaveDay.date >= cutoff_start,
+                LeaveDay.date <= cutoff_end,
+                func.upper(LeaveDay.leave_type).in_(PAID_LEAVE_TYPES),
+            ).count()
+
+            entry = PayrollEntry(
+                payroll_run_id=run.id,
+                user_id=emp.id,
+                monthly_salary=monthly_salary,
+                hourly_rate=round(monthly_salary / STANDARD_MONTHLY_HOURS, 2),
+                days_worked=days_worked,
+                hours_worked=round(hours_worked, 2),
+                leave_days=leave_days,
+                ot_hours_regular=sum(a.ot_hours_regular or 0 for a in records),
+                ot_hours_restday=sum(a.ot_hours_restday or 0 for a in records),
+            )
+            entry.recalculate()
+            run.entries.append(entry)
+
+        db.session.flush()  # load entry.user so the totals helper can see every entry
+        refresh_payroll_totals(run)
+        db.session.commit()
+
+        flash(f'Payroll generated for {run.employee_count} employees. Total net: ₱{run.total_net:,.2f}', 'success')
+        if open_days:
+            flash(f'{open_days} attendance day(s) in this period have no time-out and were counted as 8 hours. '
+                  f'Check the Hours column (or set Actual Hours on those attendance records).', 'warning')
+        if overlap:
+            flash(f'Heads up: this period overlaps "{overlap.title}" ({overlap.status}).', 'warning')
+        return redirect(url_for('payroll_edit', run_id=run.id))
+
+    # Default to the current semi-monthly cutoff: 1-15 or 16-end of month
+    today = date.today()
+    if today.day <= 15:
+        default_start, default_end = today.replace(day=1), today.replace(day=15)
+    else:
+        default_start = today.replace(day=16)
+        default_end = today.replace(day=monthrange(today.year, today.month)[1])
+    return render_template('payroll_new.html', form={},
+                           default_start=default_start.strftime('%Y-%m-%d'),
+                           default_end=default_end.strftime('%Y-%m-%d'))
+
+
+@app.route('/payroll/<int:run_id>')
+@role_required('admin')
+def payroll_edit(run_id):
+    run = PayrollRun.query.get_or_404(run_id)
+    return render_template('payroll_edit.html', run=run, entries=payroll_entries_for(run),
+                           fmt_day=fmt_day)
+
+
+@app.route('/payroll/<int:run_id>/entry/<int:entry_id>/update', methods=['POST'])
+@role_required('admin')
+def payroll_entry_update(run_id, entry_id):
+    run = PayrollRun.query.get_or_404(run_id)
+    if not run.is_editable:
+        flash('Cannot edit a finalized payroll.', 'error')
+        return redirect(url_for('payroll_edit', run_id=run_id))
+
+    entry = PayrollEntry.query.get_or_404(entry_id)
+    if entry.payroll_run_id != run_id or not entry.user or entry.user.is_super_admin:
+        abort(404)
+
+    values, bad = {}, []
+    for field in PayrollEntry.INPUT_FIELDS:
+        raw = request.form.get(field, '').strip()
+        try:
+            val = float(raw) if raw else 0.0
+        except ValueError:
+            bad.append(field)
+            continue
+        if val < 0:
+            bad.append(field)
+            continue
+        values[field] = val
+    if bad:
+        flash(f'Not saved — invalid or negative value for {entry.user.full_name}: '
+              f'{", ".join(f.replace("_", " ") for f in bad)}.', 'error')
+        return redirect(url_for('payroll_edit', run_id=run_id) + f'#entry-{entry.id}')
+
+    for field, val in values.items():
+        setattr(entry, field, val)
+    entry.notes = request.form.get('notes', '').strip() or None
+    entry.recalculate()
+    refresh_payroll_totals(run)
+    db.session.commit()
+
+    flash(f'Updated {entry.user.full_name}.', 'success')
+    return redirect(url_for('payroll_edit', run_id=run_id) + f'#entry-{entry.id}')
+
+
+@app.route('/payroll/<int:run_id>/finalize', methods=['POST'])
+@role_required('admin')
+def payroll_finalize(run_id):
+    run = PayrollRun.query.get_or_404(run_id)
+    if run.status != 'draft':
+        flash('Only draft payrolls can be finalized.', 'error')
+        return redirect(url_for('payroll_edit', run_id=run_id))
+    run.status = 'finalized'
+    run.finalized_at = datetime.now()
+    run.finalized_by_id = current_user.id
+    db.session.commit()
+    flash(f'{run.title} finalized.', 'success')
+    return redirect(url_for('payroll_edit', run_id=run_id))
+
+
+@app.route('/payroll/<int:run_id>/mark-paid', methods=['POST'])
+@role_required('admin')
+def payroll_mark_paid(run_id):
+    run = PayrollRun.query.get_or_404(run_id)
+    if run.status != 'finalized':
+        flash('Only finalized payrolls can be marked as paid.', 'error')
+        return redirect(url_for('payroll_edit', run_id=run_id))
+    run.status = 'paid'
+    run.paid_at = datetime.now()
+    db.session.commit()
+    flash(f'{run.title} marked as paid.', 'success')
+    return redirect(url_for('payroll_list'))
+
+
+@app.route('/payroll/<int:run_id>/delete', methods=['POST'])
+@role_required('admin')
+def payroll_delete(run_id):
+    """Hard delete. Admins: drafts only. Super-admins: any status, but a finalized/paid run
+    requires the exact run title typed as confirmation."""
+    run = PayrollRun.query.get_or_404(run_id)
+    title = run.title
+
+    if run.status != 'draft':
+        if not current_user.is_super_admin:
+            flash('Only super-admin can delete finalized or paid payrolls.', 'error')
+            return redirect(url_for('payroll_edit', run_id=run_id))
+        if request.form.get('confirmation', '').strip() != title:
+            flash(f'Confirmation did not match. Type "{title}" exactly to confirm deletion.', 'error')
+            return redirect(url_for('payroll_edit', run_id=run_id))
+
+    db.session.delete(run)  # entries cascade
+    db.session.commit()
+    flash(f'Payroll "{title}" deleted permanently.', 'success')
+    return redirect(url_for('payroll_list'))
+
+
+@app.route('/payroll/<int:run_id>/export/xlsx')
+@role_required('admin')
+def payroll_export_xlsx(run_id):
+    from openpyxl.styles import Alignment
+    run = PayrollRun.query.get_or_404(run_id)
+    entries = payroll_entries_for(run)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Payroll'
+    ws['A1'] = run.title
+    ws['A1'].font = Font(size=14, bold=True)
+    ws['A2'] = f'Period: {fmt_day(run.cutoff_start)} - {fmt_day(run.cutoff_end)}'
+    ws['A3'] = f'Status: {run.status.upper()}'
+
+    columns = [
+        ('Employee', None), ('FTE Salary', 'monthly_salary'), ('Hourly Rate', 'hourly_rate'), ('Days Worked', 'days_worked'), ('Hours Worked', 'hours_worked'),
+        ('Basic Pay', 'basic_pay'), ('Leave Days', 'leave_days'), ('Leave Pay', 'leave_pay'),
+        ('OT Hrs (Reg)', 'ot_hours_regular'), ('OT Hrs (Rest)', 'ot_hours_restday'), ('OT Pay', 'ot_pay'),
+        ('Allowance', 'allowance'), ('Other Earnings', 'other_earnings'), ('Gross Pay', 'gross_pay'),
+        ('SSS', 'sss'), ('PhilHealth', 'philhealth'), ('Pag-IBIG', 'pagibig'),
+        ('SSS Loan', 'sss_loan'), ('Pag-IBIG Loan', 'pagibig_loan'), ('Cash Advance', 'cash_advance'),
+        ('Late/UT', 'late_undertime'), ('Other', 'other_deduction'),
+        ('Total Deductions', 'total_deductions'), ('Net Pay', 'net_pay'),
+    ]
+    money = {'monthly_salary', 'hourly_rate', 'basic_pay', 'leave_pay', 'ot_pay', 'allowance', 'other_earnings',
+             'gross_pay', 'sss', 'philhealth', 'pagibig', 'sss_loan', 'pagibig_loan',
+             'cash_advance', 'late_undertime', 'other_deduction', 'total_deductions', 'net_pay'}
+
+    header_row = 5
+    for col, (label, _) in enumerate(columns, 1):
+        c = ws.cell(row=header_row, column=col, value=label)
+        c.font = Font(bold=True, color='FFFFFF')
+        c.fill = PatternFill(start_color='1E3A8A', end_color='1E3A8A', fill_type='solid')
+        c.alignment = Alignment(horizontal='center')
+
+    for row, e in enumerate(entries, start=header_row + 1):
+        ws.cell(row=row, column=1, value=e.user.full_name)
+        for col, (_, attr) in enumerate(columns[1:], 2):
+            c = ws.cell(row=row, column=col, value=getattr(e, attr) or 0)
+            if attr in money:
+                c.number_format = '#,##0.00'
+
+    total_row = header_row + 1 + len(entries)
+    ws.cell(row=total_row, column=1, value='TOTAL').font = Font(bold=True)
+    attrs = [a for _, a in columns]
+    for attr, value in (('gross_pay', run.total_gross), ('total_deductions', run.total_deductions),
+                        ('net_pay', run.total_net)):
+        c = ws.cell(row=total_row, column=attrs.index(attr) + 1, value=value)
+        c.font = Font(bold=True)
+        c.number_format = '#,##0.00'
+
+    for col_cells in ws.iter_cols(min_row=header_row):
+        length = max(len(str(c.value or '')) for c in col_cells)
+        ws.column_dimensions[col_cells[0].column_letter].width = min(max(length + 2, 10), 28)
+    ws.freeze_panes = f'B{header_row + 1}'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f'Payroll_{run.cutoff_start:%Y-%m-%d}_to_{run.cutoff_end:%Y-%m-%d}.xlsx'
+    return send_file(buf, as_attachment=True, download_name=filename,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 # ---------- Error pages ----------

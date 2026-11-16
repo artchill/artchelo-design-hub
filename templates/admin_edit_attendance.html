@@ -58,6 +58,28 @@
             </div>
         </div>
 
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Actual Hours <span class="text-xs font-normal text-slate-400">(Optional)</span></label>
+                <input type="number" step="0.25" min="0" max="24" name="actual_hours" value="{{ '%g'|format(record.actual_hours) if record.actual_hours is not none else '' }}"
+                       placeholder="Auto from time in/out"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <p class="text-xs text-slate-500 mt-1">Payroll override. Blank = time in/out (−1 h lunch if over 6 h, max 8 h).</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">OT Hours (Regular)</label>
+                <input type="number" step="0.5" min="0" name="ot_hours_regular" value="{{ '%g'|format(record.ot_hours_regular or 0) }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <p class="text-xs text-slate-500 mt-1">Weekday OT (1.25×)</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">OT Hours (Rest Day)</label>
+                <input type="number" step="0.5" min="0" name="ot_hours_restday" value="{{ '%g'|format(record.ot_hours_restday or 0) }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <p class="text-xs text-slate-500 mt-1">Rest day/holiday OT (1.69×)</p>
+            </div>
+        </div>
+
         <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">
                 Task Report

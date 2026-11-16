@@ -5,6 +5,11 @@ from datetime import datetime, date
 
 db = SQLAlchemy()
 
+# Payroll: monthly salaries are full-time equivalents over 8 h x 22 days
+STANDARD_DAILY_HOURS = 8
+STANDARD_MONTHLY_HOURS = STANDARD_DAILY_HOURS * 22  # 176
+LUNCH_BREAK_THRESHOLD = 6  # a day longer than this has 1 h unpaid lunch deducted
+
 
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -58,6 +63,13 @@ class User(UserMixin, db.Model):
         return self.employee_type == 'full-time'
 
     @property
+    def hourly_rate(self):
+        """monthly_salary is the FULL-TIME EQUIVALENT (8 h x 22 days), so rate = salary / 176 for everyone."""
+        if not self.monthly_salary:
+            return 0
+        return round(self.monthly_salary / STANDARD_MONTHLY_HOURS, 2)
+
+    @property
     def is_super_admin(self):
         return self.role == 'super-admin'
 
@@ -97,8 +109,27 @@ class Attendance(db.Model):
     task_report = db.Column(db.Text, nullable=True)
     edited_at = db.Column(db.DateTime, nullable=True)
     edited_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    ot_hours_regular = db.Column(db.Float, default=0.0)  # OT on regular weekdays (1.25x)
+    ot_hours_restday = db.Column(db.Float, default=0.0)  # OT on rest days/holidays (1.69x)
+    actual_hours = db.Column(db.Float, nullable=True)     # payroll override of computed hours
 
     edited_by = db.relationship('User', foreign_keys=[edited_by_id])
+
+    def compute_hours_worked(self):
+        """Regular (non-OT) hours to pay for this day.
+
+        actual_hours override wins. Otherwise time_out - time_in, minus a 1 h lunch break when
+        the span is over 6 h, capped at 8 h — time beyond 8 h is overtime and is paid only via
+        the OT fields (otherwise it would be paid twice). No time-out -> 8 h fallback.
+        """
+        if self.actual_hours is not None:
+            return self.actual_hours
+        if self.datetime_in and self.datetime_out:
+            hours = (self.datetime_out - self.datetime_in).total_seconds() / 3600
+            if hours > LUNCH_BREAK_THRESHOLD:
+                hours -= 1
+            return round(min(hours, float(STANDARD_DAILY_HOURS)), 2)
+        return float(STANDARD_DAILY_HOURS)
 
     def edit_visible_to(self, viewer):
         """Whether `viewer` may see that this record was edited.
@@ -453,3 +484,125 @@ class ProjectStatusHistory(db.Model):
     note = db.Column(db.Text, nullable=True)
 
     changed_by = db.relationship('User', foreign_keys=[changed_by_id])
+
+class PayrollRun(db.Model):
+    """One payroll period (cutoff). Draft -> finalized (read-only) -> paid."""
+    __tablename__ = 'payroll_run'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(100), nullable=False)
+    cutoff_start = db.Column(db.Date, nullable=False)
+    cutoff_end = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(20), default='draft')  # draft/finalized/paid
+
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    finalized_at = db.Column(db.DateTime, nullable=True)
+    finalized_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    paid_at = db.Column(db.DateTime, nullable=True)
+
+    total_gross = db.Column(db.Float, default=0.0)
+    total_deductions = db.Column(db.Float, default=0.0)
+    total_net = db.Column(db.Float, default=0.0)
+    employee_count = db.Column(db.Integer, default=0)
+
+    notes = db.Column(db.Text, nullable=True)
+
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+    finalized_by = db.relationship('User', foreign_keys=[finalized_by_id])
+    entries = db.relationship('PayrollEntry', backref='payroll_run', cascade='all, delete-orphan', lazy=True)
+
+    @property
+    def status_badge_class(self):
+        return {
+            'draft': 'bg-amber-100 text-amber-700',
+            'finalized': 'bg-blue-100 text-blue-700',
+            'paid': 'bg-green-100 text-green-700',
+        }.get(self.status, 'bg-slate-100 text-slate-700')
+
+    @property
+    def is_editable(self):
+        return self.status == 'draft'
+
+
+class PayrollEntry(db.Model):
+    """One employee's pay for a PayrollRun (hourly-based). Deductions are entered manually.
+    monthly_salary (FTE) and hourly_rate (= salary / 176) are snapshots taken at generation time."""
+    __tablename__ = 'payroll_entry'
+    id = db.Column(db.Integer, primary_key=True)
+    payroll_run_id = db.Column(db.Integer, db.ForeignKey('payroll_run.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
+    # Snapshot of the employee's pay basis when the run was generated
+    monthly_salary = db.Column(db.Float, default=0.0)  # full-time equivalent
+    hourly_rate = db.Column(db.Float, default=0.0)     # monthly_salary / 176
+
+    # Earnings (hourly-based)
+    days_worked = db.Column(db.Float, default=0.0)
+    hours_worked = db.Column(db.Float, default=0.0)
+    basic_pay = db.Column(db.Float, default=0.0)
+
+    leave_days = db.Column(db.Float, default=0.0)
+    leave_pay = db.Column(db.Float, default=0.0)
+
+    ot_hours_regular = db.Column(db.Float, default=0.0)
+    ot_hours_restday = db.Column(db.Float, default=0.0)
+    ot_pay = db.Column(db.Float, default=0.0)
+
+    allowance = db.Column(db.Float, default=0.0)
+    other_earnings = db.Column(db.Float, default=0.0)
+    gross_pay = db.Column(db.Float, default=0.0)
+
+    # Deductions (manual input)
+    sss = db.Column(db.Float, default=0.0)
+    philhealth = db.Column(db.Float, default=0.0)
+    pagibig = db.Column(db.Float, default=0.0)
+    sss_loan = db.Column(db.Float, default=0.0)
+    pagibig_loan = db.Column(db.Float, default=0.0)
+    cash_advance = db.Column(db.Float, default=0.0)
+    late_undertime = db.Column(db.Float, default=0.0)
+    other_deduction = db.Column(db.Float, default=0.0)
+    total_deductions = db.Column(db.Float, default=0.0)
+    net_pay = db.Column(db.Float, default=0.0)
+
+    notes = db.Column(db.Text, nullable=True)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+
+    # Manually editable numeric fields (everything else is computed by recalculate())
+    INPUT_FIELDS = ('days_worked', 'hours_worked', 'hourly_rate', 'leave_days',
+                    'ot_hours_regular', 'ot_hours_restday',
+                    'allowance', 'other_earnings',
+                    'sss', 'philhealth', 'pagibig',
+                    'sss_loan', 'pagibig_loan', 'cash_advance',
+                    'late_undertime', 'other_deduction')
+
+    @property
+    def effective_hourly_rate(self):
+        """Unrounded salary / 176 while hourly_rate is just its 2-dp display value,
+        so e.g. 44 h at 35,000/176 pays exactly 8,750.00 (not 44 x 198.86 = 8,749.84).
+        A manually overridden hourly_rate is used as entered."""
+        if self.monthly_salary:
+            exact = self.monthly_salary / STANDARD_MONTHLY_HOURS
+            if abs(round(exact, 2) - (self.hourly_rate or 0)) < 0.005:
+                return exact
+        return self.hourly_rate or 0
+
+    def recalculate(self):
+        """Recalculate all computed fields from the current inputs."""
+        # Unset columns are None until flushed; treat them as 0
+        for f in self.INPUT_FIELDS:
+            if getattr(self, f) is None:
+                setattr(self, f, 0.0)
+        rate = self.effective_hourly_rate
+        self.basic_pay = round(self.hours_worked * rate, 2)
+        # Each leave day is paid as a full 8-hour day (universal rule)
+        self.leave_pay = round(self.leave_days * STANDARD_DAILY_HOURS * rate, 2)
+        self.ot_pay = round((self.ot_hours_regular * rate * 1.25) +
+                            (self.ot_hours_restday * rate * 1.69), 2)
+        self.gross_pay = round(self.basic_pay + self.leave_pay + self.ot_pay +
+                               self.allowance + self.other_earnings, 2)
+        self.total_deductions = round(self.sss + self.philhealth + self.pagibig +
+                                      self.sss_loan + self.pagibig_loan +
+                                      self.cash_advance + self.late_undertime +
+                                      self.other_deduction, 2)
+        self.net_pay = round(self.gross_pay - self.total_deductions, 2)

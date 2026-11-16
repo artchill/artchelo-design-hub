@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}New Payroll Run{% endblock %}
+{% block content %}
+{% set input_cls = 'w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none' %}
+<div class="flex items-center justify-between mb-6 max-w-2xl">
+    <h1 class="text-2xl font-bold text-slate-800">New Payroll Run</h1>
+    <a href="{{ url_for('payroll_list') }}" class="text-sm text-slate-600 hover:underline">← Back</a>
+</div>
+
+<div class="bg-amber-50 border border-amber-200 rounded p-3 mb-4 text-sm text-amber-800 max-w-2xl">
+    <i class="fa-solid fa-circle-info"></i>
+    Hourly rate = monthly salary ÷ 176 (salaries are full-time equivalents: 8 h × 22 days).
+    Everyone is paid for the hours they <strong>actually worked</strong> — part-timers earn less because they work fewer hours.
+    Daily hours = time-in to time-out, minus a 1 h lunch if over 6 h, capped at 8 h (extra time is paid only as logged OT).
+    OT: regular 1.25×, rest day 1.69×. Paid leave (VL/SL) = 8 h × hourly rate per day.
+    Super-admins are excluded.
+</div>
+
+<div class="bg-white rounded-lg shadow p-6 max-w-2xl">
+    <form method="POST" class="space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Cutoff Start <span class="text-red-600">*</span></label>
+                <input type="date" name="cutoff_start" required value="{{ default_start }}" class="{{ input_cls }}">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Cutoff End <span class="text-red-600">*</span></label>
+                <input type="date" name="cutoff_end" required value="{{ default_end }}" class="{{ input_cls }}">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Notes <span class="text-xs font-normal text-slate-400">(Optional)</span></label>
+            <textarea name="notes" rows="2" class="{{ input_cls }}">{{ form.get('notes', '') }}</textarea>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium">
+                <i class="fa-solid fa-gear"></i> Generate Payroll
+            </button>
+            <a href="{{ url_for('payroll_list') }}" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded font-medium">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
