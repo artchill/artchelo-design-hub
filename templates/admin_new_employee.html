@@ -131,16 +131,23 @@
         </div>
 
 
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Monthly Salary (₱, Full-Time Equivalent) <span class="text-red-600">*</span></label>
-            <input type="number" name="monthly_salary" step="0.01" min="0" required
-                   value="{{ form_data.monthly_salary or '' }}" placeholder="e.g. 25000"
-                   class="w-full md:w-1/2 border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
-            <p class="text-xs text-slate-500 mt-1">
-                Full-time rate for 8 h/day × 22 days — enter the FULL amount even for part-timers.
-                Pay is hourly (salary ÷ 176) × hours actually worked, so a part-timer on a ₱35,000 base
-                working 4 h/day earns about ₱17,500/month.
-            </p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Monthly Salary (₱) <span class="text-red-600">*</span></label>
+                <input type="number" name="monthly_salary" step="0.01" min="0" required
+                       value="{{ form_data.monthly_salary or '' }}" placeholder="e.g. 25000"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <p class="text-xs text-slate-500 mt-1">
+                    Actual monthly pay. A part-timer earning ₱17,500 → enter 17500.
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Daily Working Hours <span class="text-red-600">*</span></label>
+                <input type="number" name="daily_hours" step="0.5" min="0.5" max="24" required
+                       value="{{ form_data.daily_hours or ('4' if form_data.employee_type == 'part-time' else '8') }}"
+                       class="w-full border border-slate-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <p class="text-xs text-slate-500 mt-1">Full-time: 8 · Part-time: 4 (or custom). Hourly rate = (salary ÷ 22) ÷ daily hours.</p>
+            </div>
         </div>
 
         <div class="flex gap-3 pt-2">
@@ -156,4 +163,19 @@
     </form>
 </div>
 
+
+<script>
+// Suggest daily hours from employee type (8 full-time / 4 part-time) until the field is edited by hand
+(function () {
+    const type = document.querySelector('select[name="employee_type"]');
+    const hours = document.querySelector('input[name="daily_hours"]');
+    if (!type || !hours) return;
+    let touched = false;
+    hours.addEventListener('input', () => { touched = true; });
+    type.addEventListener('change', () => {
+        const suggested = { 'full-time': 8, 'part-time': 4 }[type.value];
+        if (!touched && suggested) hours.value = suggested;
+    });
+})();
+</script>
 {% endblock %}

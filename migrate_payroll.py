@@ -1,19 +1,32 @@
-"""Payroll migration (Phase P-1, universal 176-hour formula). Idempotent — safe to re-run.
+"""Payroll schema migration (fixed-salary model). Idempotent — safe to re-run; touches no payroll data.
 
-  - attendances.ot_hours_regular / ot_hours_restday / actual_hours
-  - payroll_run / payroll_entry tables (+ hourly snapshot columns on older payroll_entry tables)
-  - removes the daily_hours columns from the earlier per-employee-hours draft (no longer used)
+  - attendances.ot_hours_regular / ot_hours_restday / actual_hours (kept dormant for the P-2 OT module)
+  - users.daily_hours (default 8; part-timers backfilled to 4 when the column is first added)
+  - payroll_run / payroll_entry tables; payroll_entry columns brought in line with the model
+    (adds the fixed-salary columns, drops the hourly-model ones only when the table is empty)
 
-Formula: hourly_rate = monthly_salary (full-time equivalent) / 176.
-Run:  python migrate_payroll.py
+Run:  python migrate_payroll.py      (rebuild_payroll.py also calls migrate())
 """
 from app import app, db
-from models import User, PayrollRun, PayrollEntry, STANDARD_MONTHLY_HOURS  # noqa: F401
+from models import PayrollRun, PayrollEntry  # noqa: F401  (registers tables for create_all)
 from sqlalchemy import text, inspect
 
-# The voucher account. NOTE: 'cheluarbuis' is the super-admin and is never a payroll subject;
-# Chilli's employee account (Richellou, part-time, 2-6 PM attendance) is cheloart92.
-CHILLI_USERNAME = 'cheloart92'
+PAYROLL_ENTRY_NEW_COLUMNS = {
+    'monthly_salary': 'FLOAT DEFAULT 0',
+    'daily_hours': 'FLOAT DEFAULT 8.0',
+    'daily_rate': 'FLOAT DEFAULT 0',
+    'hourly_rate': 'FLOAT DEFAULT 0',
+    'base_pay': 'FLOAT DEFAULT 0',
+    'expected_workdays': 'INTEGER DEFAULT 0',
+    'absent_days': 'FLOAT DEFAULT 0',
+    'absent_deduction': 'FLOAT DEFAULT 0',
+    'late_minutes': 'FLOAT DEFAULT 0',
+    'late_deduction': 'FLOAT DEFAULT 0',
+    'undertime_hours': 'FLOAT DEFAULT 0',
+    'undertime_deduction': 'FLOAT DEFAULT 0',
+}
+# From the superseded hourly model (basic_pay -> base_pay, late_undertime -> late/undertime split)
+PAYROLL_ENTRY_STALE_COLUMNS = ('basic_pay', 'hours_worked', 'late_undertime')
 
 
 def columns(table):
@@ -22,76 +35,46 @@ def columns(table):
 
 def add_column(conn, table, existing, name, ddl):
     if name in existing:
-        print(f'  {table}.{name} already exists.')
-        return
+        return False
     print(f'  Adding {table}.{name}...')
     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {ddl}'))
+    return True
 
 
-with app.app_context():
-    print('========== PAYROLL MIGRATION ==========')
+def migrate():
+    print('---------- schema ----------')
     tables = inspect(db.engine).get_table_names()
-    att_cols = columns('attendances')
-
     with db.engine.begin() as conn:
+        att_cols = columns('attendances')
         add_column(conn, 'attendances', att_cols, 'ot_hours_regular', 'FLOAT DEFAULT 0')
         add_column(conn, 'attendances', att_cols, 'ot_hours_restday', 'FLOAT DEFAULT 0')
         add_column(conn, 'attendances', att_cols, 'actual_hours', 'FLOAT')
 
+        if add_column(conn, 'users', columns('users'), 'daily_hours', 'FLOAT DEFAULT 8.0'):
+            n = conn.execute(text("UPDATE users SET daily_hours = 4.0 WHERE employee_type = 'part-time'")).rowcount
+            print(f'  Backfilled daily_hours: {n} part-time user(s) = 4 h, everyone else = 8 h.')
+        else:
+            print('  users.daily_hours already exists.')
+
         if 'payroll_entry' in tables:
             pe_cols = columns('payroll_entry')
-            for name, ddl in (('monthly_salary', 'FLOAT DEFAULT 0'), ('hourly_rate', 'FLOAT DEFAULT 0'),
-                              ('hours_worked', 'FLOAT DEFAULT 0')):
-                add_column(conn, 'payroll_entry', pe_cols, name, ddl)
+            added = [c for c, ddl in PAYROLL_ENTRY_NEW_COLUMNS.items() if add_column(conn, 'payroll_entry', pe_cols, c, ddl)]
+            if not added:
+                print('  payroll_entry fixed-salary columns already exist.')
+            stale = [c for c in PAYROLL_ENTRY_STALE_COLUMNS if c in pe_cols]
+            if stale:
+                rows = conn.execute(text('SELECT COUNT(*) FROM payroll_entry')).scalar()
+                if rows == 0:
+                    for c in stale:
+                        print(f'  Dropping unused payroll_entry.{c}...')
+                        conn.execute(text(f'ALTER TABLE payroll_entry DROP COLUMN {c}'))
+                else:
+                    print(f'  Keeping unused payroll_entry columns {stale} ({rows} rows exist).')
 
-        # daily_hours (users + payroll_entry) came from the superseded per-employee-hours version
-        for table in ('users', 'payroll_entry'):
-            if table in tables and 'daily_hours' in columns(table):
-                print(f'  Dropping unused {table}.daily_hours...')
-                conn.execute(text(f'ALTER TABLE {table} DROP COLUMN daily_hours'))
+    db.create_all()  # payroll_run / payroll_entry on a fresh database
+    print('  payroll_run / payroll_entry tables OK.')
 
-    print('Creating payroll_run and payroll_entry tables (if not exist)...')
-    db.create_all()
 
-    # Entries from the original daily-rate version (if any never got an hourly snapshot):
-    # a full day = 8 h, so hourly_rate x hours_worked reproduces the stored basic pay.
-    if 'daily_rate' in columns('payroll_entry'):
-        with db.engine.begin() as conn:
-            n = conn.execute(text('''
-                UPDATE payroll_entry SET
-                    monthly_salary = ROUND(daily_rate * 22, 2),
-                    hourly_rate    = ROUND(daily_rate / 8, 2),
-                    hours_worked   = days_worked * 8
-                WHERE COALESCE(hourly_rate, 0) = 0 AND COALESCE(daily_rate, 0) > 0''')).rowcount
-            if n:
-                print(f'  Backfilled hourly snapshot on {n} legacy payroll entr{"y" if n == 1 else "ies"} '
-                      f'(pay amounts unchanged).')
-
-    print()
-    print('========== VERIFICATION ==========')
-    # admin + employee only — super-admin salaries are never printed
-    users = User.query.filter(User.role.in_(['admin', 'employee']),
-                              User.employment_status == 'active').order_by(User.id).all()
-    for u in users:
-        hourly = (u.monthly_salary / STANDARD_MONTHLY_HOURS) if u.monthly_salary else 0
-        print(f'  {u.username} ({u.employee_type}): FTE salary=₱{(u.monthly_salary or 0):,.2f}, hourly=₱{hourly:.2f}')
-
-    print()
-    chilli = User.query.filter_by(username=CHILLI_USERNAME).first()
-    if chilli:
-        print(f'Chilli voucher verification ({CHILLI_USERNAME}, Oct 1-15, 2026 target: ₱8,750):')
-        hourly = (chilli.monthly_salary / STANDARD_MONTHLY_HOURS) if chilli.monthly_salary else 0
-        print('  Expected hourly (if FTE=₱35,000): ₱198.86')
-        print(f'  Current stored monthly_salary: ₱{(chilli.monthly_salary or 0):,.2f}')
-        print(f'  Computed hourly: ₱{hourly:.2f}')
-        print(f'  Employee type: {chilli.employee_type}')
-        if abs(hourly - 198.86) < 0.5:
-            print('  ✅ FTE salary is correct — payroll will compute ₱8,750 for Chilli')
-        else:
-            print("  ⚠️ ACTION NEEDED: Chilli's monthly_salary should be ₱35,000 (full-time equivalent)")
-            print('  Currently stored as actual part-time pay. Update via:')
-            print('  Admin > Team > Edit Chilli > monthly_salary = 35000')
-            print('  This stores the "full rate" so the system can pay proportionally.')
-
-    print()
-    print('========== MIGRATION COMPLETE ==========')
+if __name__ == '__main__':
+    with app.app_context():
+        migrate()

@@ -5,9 +5,11 @@ from datetime import datetime, date
 
 db = SQLAlchemy()
 
-# Payroll: monthly salaries are full-time equivalents over 8 h x 22 days
+# Payroll: fixed monthly salary; daily rate = salary / 22
+PAYROLL_WORKDAYS_PER_MONTH = 22
+# Attendance hour rules (used by Attendance.compute_hours_worked; not part of payroll since the
+# fixed-salary rebuild — kept for the P-2 OT Request module)
 STANDARD_DAILY_HOURS = 8
-STANDARD_MONTHLY_HOURS = STANDARD_DAILY_HOURS * 22  # 176
 LUNCH_BREAK_THRESHOLD = 6  # a day longer than this has 1 h unpaid lunch deducted
 
 
@@ -33,6 +35,7 @@ class User(UserMixin, db.Model):
     monthly_salary = db.Column(db.Float, nullable=True)
     employee_type = db.Column(db.String(20), nullable=True)
     employment_status = db.Column(db.String(20), default='active')
+    daily_hours = db.Column(db.Float, default=8.0)  # 8 full-time, 4 part-time; derives the hourly rate
     resignation_date = db.Column(db.Date, nullable=True)
 
     attendances = db.relationship(
@@ -64,10 +67,11 @@ class User(UserMixin, db.Model):
 
     @property
     def hourly_rate(self):
-        """monthly_salary is the FULL-TIME EQUIVALENT (8 h x 22 days), so rate = salary / 176 for everyone."""
-        if not self.monthly_salary:
+        """(monthly_salary / 22) / daily_hours. monthly_salary is ACTUAL pay."""
+        if not self.monthly_salary or not self.daily_hours:
             return 0
-        return round(self.monthly_salary / STANDARD_MONTHLY_HOURS, 2)
+        daily = self.monthly_salary / PAYROLL_WORKDAYS_PER_MONTH
+        return round(daily / self.daily_hours, 2)
 
     @property
     def is_super_admin(self):
@@ -525,41 +529,58 @@ class PayrollRun(db.Model):
 
 
 class PayrollEntry(db.Model):
-    """One employee's pay for a PayrollRun (hourly-based). Deductions are entered manually.
-    monthly_salary (FTE) and hourly_rate (= salary / 176) are snapshots taken at generation time."""
+    """One employee's pay for a PayrollRun — FIXED SALARY minus deductions.
+
+    base_pay = monthly_salary / 2 per semi-monthly cutoff (fixed at generation); time-related
+    deductions (absent / late / undertime) come off gross; statutory + loan deductions off net.
+    monthly_salary, daily_hours, daily_rate and hourly_rate are snapshots taken at generation.
+    """
     __tablename__ = 'payroll_entry'
     id = db.Column(db.Integer, primary_key=True)
     payroll_run_id = db.Column(db.Integer, db.ForeignKey('payroll_run.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
-    # Snapshot of the employee's pay basis when the run was generated
-    monthly_salary = db.Column(db.Float, default=0.0)  # full-time equivalent
-    hourly_rate = db.Column(db.Float, default=0.0)     # monthly_salary / 176
+    # Snapshot of employee state at time of generation
+    monthly_salary = db.Column(db.Float, default=0.0)  # actual monthly pay
+    daily_hours = db.Column(db.Float, default=8.0)
+    daily_rate = db.Column(db.Float, default=0.0)      # monthly_salary / 22
+    hourly_rate = db.Column(db.Float, default=0.0)     # daily_rate / daily_hours
 
-    # Earnings (hourly-based)
+    # Attendance summary for the cutoff
+    expected_workdays = db.Column(db.Integer, default=0)
     days_worked = db.Column(db.Float, default=0.0)
-    hours_worked = db.Column(db.Float, default=0.0)
-    basic_pay = db.Column(db.Float, default=0.0)
-
     leave_days = db.Column(db.Float, default=0.0)
-    leave_pay = db.Column(db.Float, default=0.0)
+    absent_days = db.Column(db.Float, default=0.0)
 
+    # Base pay (fixed semi-monthly)
+    base_pay = db.Column(db.Float, default=0.0)
+
+    # Deductions from base (time-related)
+    absent_deduction = db.Column(db.Float, default=0.0)
+    late_minutes = db.Column(db.Float, default=0.0)
+    late_deduction = db.Column(db.Float, default=0.0)
+    undertime_hours = db.Column(db.Float, default=0.0)
+    undertime_deduction = db.Column(db.Float, default=0.0)
+
+    # Additions (OT = manual admin input for now; OT Request module in P-2)
     ot_hours_regular = db.Column(db.Float, default=0.0)
     ot_hours_restday = db.Column(db.Float, default=0.0)
     ot_pay = db.Column(db.Float, default=0.0)
 
+    # Other earnings
+    leave_pay = db.Column(db.Float, default=0.0)  # usually 0 — paid leave is already inside base pay
     allowance = db.Column(db.Float, default=0.0)
     other_earnings = db.Column(db.Float, default=0.0)
+
     gross_pay = db.Column(db.Float, default=0.0)
 
-    # Deductions (manual input)
+    # Government + loan deductions (manual input)
     sss = db.Column(db.Float, default=0.0)
     philhealth = db.Column(db.Float, default=0.0)
     pagibig = db.Column(db.Float, default=0.0)
     sss_loan = db.Column(db.Float, default=0.0)
     pagibig_loan = db.Column(db.Float, default=0.0)
     cash_advance = db.Column(db.Float, default=0.0)
-    late_undertime = db.Column(db.Float, default=0.0)
     other_deduction = db.Column(db.Float, default=0.0)
     total_deductions = db.Column(db.Float, default=0.0)
     net_pay = db.Column(db.Float, default=0.0)
@@ -569,40 +590,53 @@ class PayrollEntry(db.Model):
     user = db.relationship('User', foreign_keys=[user_id])
 
     # Manually editable numeric fields (everything else is computed by recalculate())
-    INPUT_FIELDS = ('days_worked', 'hours_worked', 'hourly_rate', 'leave_days',
+    INPUT_FIELDS = ('days_worked', 'absent_days', 'leave_days',
+                    'base_pay', 'daily_rate', 'hourly_rate',
+                    'late_minutes', 'undertime_hours',
                     'ot_hours_regular', 'ot_hours_restday',
-                    'allowance', 'other_earnings',
+                    'allowance', 'other_earnings', 'leave_pay',
                     'sss', 'philhealth', 'pagibig',
                     'sss_loan', 'pagibig_loan', 'cash_advance',
-                    'late_undertime', 'other_deduction')
-
-    @property
-    def effective_hourly_rate(self):
-        """Unrounded salary / 176 while hourly_rate is just its 2-dp display value,
-        so e.g. 44 h at 35,000/176 pays exactly 8,750.00 (not 44 x 198.86 = 8,749.84).
-        A manually overridden hourly_rate is used as entered."""
-        if self.monthly_salary:
-            exact = self.monthly_salary / STANDARD_MONTHLY_HOURS
-            if abs(round(exact, 2) - (self.hourly_rate or 0)) < 0.005:
-                return exact
-        return self.hourly_rate or 0
+                    'other_deduction')
 
     def recalculate(self):
-        """Recalculate all computed fields from the current inputs."""
+        """Recalculate all computed fields. base_pay stays fixed from generation."""
         # Unset columns are None until flushed; treat them as 0
         for f in self.INPUT_FIELDS:
             if getattr(self, f) is None:
                 setattr(self, f, 0.0)
-        rate = self.effective_hourly_rate
-        self.basic_pay = round(self.hours_worked * rate, 2)
-        # Each leave day is paid as a full 8-hour day (universal rule)
-        self.leave_pay = round(self.leave_days * STANDARD_DAILY_HOURS * rate, 2)
-        self.ot_pay = round((self.ot_hours_regular * rate * 1.25) +
-                            (self.ot_hours_restday * rate * 1.69), 2)
-        self.gross_pay = round(self.basic_pay + self.leave_pay + self.ot_pay +
-                               self.allowance + self.other_earnings, 2)
+        minute_rate = (self.hourly_rate / 60) if self.hourly_rate else 0
+
+        # Time-based deductions
+        # Proportional to the cutoff's own workdays, so a fully absent cutoff nets exactly 0
+        # (base is a fixed half-month, but cutoffs have 10-12 weekdays, not always 11)
+        if self.expected_workdays and self.expected_workdays > 0:
+            self.absent_deduction = round((self.absent_days / self.expected_workdays) * self.base_pay, 2)
+        else:
+            self.absent_deduction = 0
+        self.late_deduction = round(self.late_minutes * minute_rate, 2)
+        self.undertime_deduction = round(self.undertime_hours * self.hourly_rate, 2)
+
+        # OT pay (manual input for now)
+        self.ot_pay = round((self.ot_hours_regular * self.hourly_rate * 1.25) +
+                            (self.ot_hours_restday * self.hourly_rate * 1.69), 2)
+
+        # Gross: base + additions - time deductions
+        self.gross_pay = round(
+            self.base_pay
+            + self.ot_pay
+            + self.leave_pay
+            + self.allowance
+            + self.other_earnings
+            - self.absent_deduction
+            - self.late_deduction
+            - self.undertime_deduction,
+            2
+        )
+
+        # Statutory + loan deductions
         self.total_deductions = round(self.sss + self.philhealth + self.pagibig +
                                       self.sss_loan + self.pagibig_loan +
-                                      self.cash_advance + self.late_undertime +
-                                      self.other_deduction, 2)
+                                      self.cash_advance + self.other_deduction, 2)
+
         self.net_pay = round(self.gross_pay - self.total_deductions, 2)

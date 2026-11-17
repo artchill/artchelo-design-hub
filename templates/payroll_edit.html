@@ -106,46 +106,65 @@
         <thead class="bg-slate-800 text-white text-xs uppercase">
             <tr>
                 <th class="px-3 py-2 text-left">Employee</th>
-                <th class="px-2 py-2" title="Days worked">Days</th>
-                <th class="px-2 py-2" title="Regular hours worked in the period">Hours</th>
-                <th class="px-2 py-2" title="Hourly rate = FTE monthly salary / 176 (8 h x 22 days)">₱/hr</th>
-                <th class="px-2 py-2" title="Paid leave days (VL/SL), each paid as 8 h x hourly rate">Leave</th>
+                <th class="px-2 py-2" title="Worked / Leave / Absent (absent is editable, e.g. for holidays)">Days W/L/A</th>
+                <th class="px-3 py-2 bg-blue-700" title="Monthly salary ÷ 2 (semi-monthly)">Base</th>
+                <th class="px-2 py-2" title="Late minutes × (hourly rate ÷ 60)">Late (min)</th>
+                <th class="px-2 py-2" title="Undertime hours × hourly rate">UT (hrs)</th>
                 <th class="px-2 py-2" title="OT hours, regular day (1.25×)">OT Reg</th>
                 <th class="px-2 py-2" title="OT hours, rest day/holiday (1.69×)">OT Rest</th>
                 <th class="px-2 py-2" title="Allowance">Allow.</th>
-                <th class="px-3 py-2 bg-blue-700">Gross</th>
+                <th class="px-3 py-2 bg-blue-700" title="Base + OT + allowance − absent/late/undertime">Gross</th>
                 <th class="px-2 py-2">SSS</th>
                 <th class="px-2 py-2" title="PhilHealth">PhilH</th>
                 <th class="px-2 py-2" title="Pag-IBIG">Pag-I</th>
-                <th class="px-2 py-2">SSS Loan</th>
                 <th class="px-2 py-2" title="Cash advance">CA</th>
-                <th class="px-3 py-2 bg-red-700">Deduct</th>
+                <th class="px-3 py-2 bg-red-700" title="SSS + PhilHealth + Pag-IBIG + loans + CA + other">Deduct</th>
                 <th class="px-3 py-2 bg-green-700">Net</th>
                 {% if run.is_editable %}<th class="px-3 py-2">Action</th>{% endif %}
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
             {% for e in entries %}
-            <tr id="entry-{{ e.id }}" class="hover:bg-slate-50">
+            <tr id="entry-{{ e.id }}" class="hover:bg-slate-50 align-top">
                 <td class="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">
                     {{ e.user.full_name }}
                     <div class="text-xs font-normal text-slate-400">
-                        {{ e.user.employee_type|capitalize if e.user.employee_type else e.user.role|capitalize }}
-                        · FTE ₱{{ "{:,.0f}".format(e.monthly_salary or 0) }}/mo
+                        ₱{{ "{:,.2f}".format(e.monthly_salary or 0) }}/mo · {{ '%g'|format(e.daily_hours or 0) }} hr/day · ₱{{ "%.2f"|format(e.hourly_rate or 0) }}/hr
                     </div>
                 </td>
-                {{ cell(e, 'days_worked', 'w-14', '1', money=false) }}
-                {{ cell(e, 'hours_worked', 'w-16', '0.5', money=false) }}
-                {{ cell(e, 'hourly_rate', 'w-20') }}
-                {{ cell(e, 'leave_days', 'w-14', '0.5', money=false) }}
+                <td class="px-2 py-2 text-center text-xs whitespace-nowrap">
+                    <span class="text-green-700 font-semibold">{{ '%g'|format(e.days_worked or 0) }}</span> /
+                    <span class="text-blue-700 font-semibold">{{ '%g'|format(e.leave_days or 0) }}</span> /
+                    <input type="number" step="0.5" min="0" name="absent_days" title="Absent days"
+                           value="{{ '%g'|format(e.absent_days or 0) }}"
+                           {% if run.is_editable %}form="entry-form-{{ e.id }}"{% else %}disabled{% endif %}
+                           class="w-12 border border-red-200 text-red-600 font-semibold rounded px-1 py-0.5 text-right disabled:bg-transparent disabled:border-transparent">
+                    <div class="text-slate-400">of {{ e.expected_workdays or 0 }}</div>
+                    {% if e.absent_deduction %}<div class="text-red-600">−₱{{ "{:,.2f}".format(e.absent_deduction) }}</div>{% endif %}
+                </td>
+                <td class="px-3 py-2 bg-blue-50 text-right font-semibold text-blue-800 whitespace-nowrap">₱{{ "{:,.2f}".format(e.base_pay or 0) }}</td>
+                <td class="px-2 py-2">
+                    <input type="number" step="1" min="0" name="late_minutes" value="{{ '%g'|format(e.late_minutes or 0) }}"
+                           {% if run.is_editable %}form="entry-form-{{ e.id }}"{% else %}disabled{% endif %}
+                           class="w-16 border border-slate-300 rounded px-1 py-0.5 text-right disabled:bg-slate-50 disabled:text-slate-600 disabled:border-transparent">
+                    {% if e.late_deduction %}<div class="text-xs text-red-600 text-right">−₱{{ "{:,.2f}".format(e.late_deduction) }}</div>{% endif %}
+                </td>
+                <td class="px-2 py-2">
+                    <input type="number" step="0.25" min="0" name="undertime_hours" value="{{ '%g'|format(e.undertime_hours or 0) }}"
+                           {% if run.is_editable %}form="entry-form-{{ e.id }}"{% else %}disabled{% endif %}
+                           class="w-14 border border-slate-300 rounded px-1 py-0.5 text-right disabled:bg-slate-50 disabled:text-slate-600 disabled:border-transparent">
+                    {% if e.undertime_deduction %}<div class="text-xs text-red-600 text-right">−₱{{ "{:,.2f}".format(e.undertime_deduction) }}</div>{% endif %}
+                </td>
                 {{ cell(e, 'ot_hours_regular', 'w-14', '0.5', money=false) }}
                 {{ cell(e, 'ot_hours_restday', 'w-14', '0.5', money=false) }}
                 {{ cell(e, 'allowance', 'w-20') }}
-                <td class="px-3 py-2 bg-blue-50 text-right font-semibold text-blue-800 whitespace-nowrap">₱{{ "{:,.2f}".format(e.gross_pay or 0) }}</td>
+                <td class="px-3 py-2 bg-blue-50 text-right font-semibold text-blue-800 whitespace-nowrap">
+                    ₱{{ "{:,.2f}".format(e.gross_pay or 0) }}
+                    {% if e.ot_pay %}<div class="text-xs font-normal text-blue-600">incl. OT ₱{{ "{:,.2f}".format(e.ot_pay) }}</div>{% endif %}
+                </td>
                 {{ cell(e, 'sss', 'w-20') }}
                 {{ cell(e, 'philhealth', 'w-20') }}
                 {{ cell(e, 'pagibig', 'w-20') }}
-                {{ cell(e, 'sss_loan', 'w-20') }}
                 {{ cell(e, 'cash_advance', 'w-20') }}
                 <td class="px-3 py-2 bg-red-50 text-right font-semibold text-red-700 whitespace-nowrap">₱{{ "{:,.2f}".format(e.total_deductions or 0) }}</td>
                 <td class="px-3 py-2 bg-green-50 text-right font-bold text-green-800 whitespace-nowrap">₱{{ "{:,.2f}".format(e.net_pay or 0) }}</td>
@@ -153,10 +172,16 @@
                 <td class="px-3 py-2">
                     <form id="entry-form-{{ e.id }}" method="POST"
                           action="{{ url_for('payroll_entry_update', run_id=run.id, entry_id=e.id) }}">
-                        {# Fields not shown as columns are carried through unchanged #}
+                        {# Fields not shown as inputs are carried through unchanged #}
+                        <input type="hidden" name="days_worked" value="{{ e.days_worked or 0 }}">
+                        <input type="hidden" name="leave_days" value="{{ e.leave_days or 0 }}">
+                        <input type="hidden" name="base_pay" value="{{ e.base_pay or 0 }}">
+                        <input type="hidden" name="daily_rate" value="{{ e.daily_rate or 0 }}">
+                        <input type="hidden" name="hourly_rate" value="{{ e.hourly_rate or 0 }}">
+                        <input type="hidden" name="leave_pay" value="{{ e.leave_pay or 0 }}">
                         <input type="hidden" name="other_earnings" value="{{ e.other_earnings or 0 }}">
+                        <input type="hidden" name="sss_loan" value="{{ e.sss_loan or 0 }}">
                         <input type="hidden" name="pagibig_loan" value="{{ e.pagibig_loan or 0 }}">
-                        <input type="hidden" name="late_undertime" value="{{ e.late_undertime or 0 }}">
                         <input type="hidden" name="other_deduction" value="{{ e.other_deduction or 0 }}">
                         <input type="hidden" name="notes" value="{{ e.notes or '' }}">
                         <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs">Save</button>
@@ -171,9 +196,12 @@
 
 {% if run.is_editable %}
 <p class="text-xs text-slate-500 mt-3">
-    <i class="fa-solid fa-circle-info"></i> Save each row individually. Gross, deductions and net recalculate on save.
-    Hourly rate = FTE salary ÷ 176 (8 h × 22 days).
-    Pag-IBIG loan, late/undertime and other earnings/deductions are included in the Excel export.
+    <i class="fa-solid fa-circle-info"></i>
+    <strong>Fixed-salary model:</strong> Base pay = monthly salary ÷ 2 (semi-monthly).
+    Enter late minutes, undertime hours, and OT manually. Absent days are auto-calculated from attendance
+    (weekdays with no attendance or approved leave) — correct them here for holidays.
+    Days column shows: <span class="text-green-700">worked</span> / <span class="text-blue-700">leave</span> / <span class="text-red-600">absent</span>.
+    SSS loan, Pag-IBIG loan and other earnings/deductions are carried through and included in the Excel export.
 </p>
 {% endif %}
 {% else %}

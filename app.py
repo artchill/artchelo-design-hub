@@ -22,7 +22,7 @@ from models import (
     db, User, Attendance, LeaveDay, LeaveRequest, AttendanceTicket,
     Client, SalesLead, SalesInvoice,
     Project, DomainRenewal, ProjectStatusHistory, AddOn,
-    PayrollRun, PayrollEntry, STANDARD_MONTHLY_HOURS,
+    PayrollRun, PayrollEntry, PAYROLL_WORKDAYS_PER_MONTH,
 )
 
 app = Flask(__name__)
@@ -380,6 +380,17 @@ def parse_ot_hours(form):
         except ValueError:
             return 0.0
     return one('ot_hours_regular'), one('ot_hours_restday')
+
+
+def parse_daily_hours(raw):
+    """(value, error) for the employee Daily Working Hours field (derives the hourly rate)."""
+    try:
+        val = float((raw or '').strip())
+    except ValueError:
+        return None, 'Daily working hours must be a number.'
+    if not 0 < val <= 24:
+        return None, 'Daily working hours must be between 0 and 24.'
+    return val, None
 
 
 def parse_actual_hours(form):
@@ -1561,8 +1572,12 @@ def admin_new_employee():
         codename = request.form.get('codename', '').strip() or None
         email = request.form.get('email', '').strip().lower()
         gender = request.form.get('gender', '').strip()
+        daily_hours_str = request.form.get('daily_hours', '').strip()
 
         errors = []
+        daily_hours, daily_hours_error = parse_daily_hours(daily_hours_str or '8')
+        if daily_hours_error:
+            errors.append(daily_hours_error)
         if not all([username, password, fname, lname, role, job_position,
                     birthdate_str, date_hired_str, monthly_salary_str, employee_type,
                     email, gender]):
@@ -1613,6 +1628,7 @@ def admin_new_employee():
                            'birthdate': birthdate_str, 'date_hired': date_hired_str,
                            'monthly_salary': monthly_salary_str,
                            'employee_type': employee_type,
+                           'daily_hours': daily_hours_str,
                            'codename': codename or '', 'email': email, 'gender': gender})
 
         new_user = User(
@@ -1623,6 +1639,7 @@ def admin_new_employee():
             birthdate=birthdate, date_hired=date_hired,
             monthly_salary=monthly_salary,
             employee_type=employee_type,
+            daily_hours=daily_hours,
             employment_status='active',
             codename=codename, email=email, gender=gender,
         )
@@ -1666,6 +1683,9 @@ def admin_edit_employee(user_id):
             errors.append('Access denied: only super-admin can reset a super-admin\'s password or status.')
         if not email or not gender:
             errors.append('Email and gender are required.')
+        daily_hours, daily_hours_error = parse_daily_hours(request.form.get('daily_hours') or str(emp.daily_hours or 8))
+        if daily_hours_error:
+            errors.append(daily_hours_error)
         errors.extend(validate_profile_fields(codename, email, gender, exclude_user_id=emp.id))
         avatar_data, avatar_error = read_avatar_upload(request.files.get('profile_pic'))
         if avatar_error:
@@ -1686,6 +1706,7 @@ def admin_edit_employee(user_id):
         emp.role = new_role
         emp.job_position = request.form.get('job_position', '').strip() or emp.job_position
         emp.employee_type = request.form.get('employee_type', emp.employee_type)
+        emp.daily_hours = daily_hours
 
         birthdate_str = request.form.get('birthdate', '').strip()
         if birthdate_str:
@@ -2885,37 +2906,62 @@ def payroll_new():
             User.employment_status == 'active',
         ).all()
 
+        # Expected workdays = Mon-Fri in the cutoff. Absences are only counted for weekdays
+        # that have already happened (a cutoff generated early doesn't mark the future absent).
+        today = date.today()
+        weekdays = [cutoff_start + timedelta(days=i) for i in range((cutoff_end - cutoff_start).days + 1)]
+        weekdays = [d for d in weekdays if d.weekday() < 5]
+        expected_workdays = len(weekdays)
+        elapsed_weekdays = {d for d in weekdays if d <= today}
+
+        # Semi-monthly cutoff (10-18 days) -> fixed half salary; any other length is prorated
+        # by expected workdays over the standard 22.
+        cutoff_days = (cutoff_end - cutoff_start).days + 1
+        if 10 <= cutoff_days <= 18:
+            salary_divisor = 2
+        else:
+            salary_divisor = PAYROLL_WORKDAYS_PER_MONTH / max(expected_workdays, 1)
+
         range_start = datetime.combine(cutoff_start, datetime.min.time())
         range_end = datetime.combine(cutoff_end + timedelta(days=1), datetime.min.time())
-        open_days = 0  # attendance days with no time-out (paid at the 8 h fallback)
         for emp in employees:
+            monthly_salary = emp.monthly_salary or 0  # actual monthly pay
+            daily_hours = emp.daily_hours or 8.0
+            daily_rate = round(monthly_salary / PAYROLL_WORKDAYS_PER_MONTH, 2) if monthly_salary else 0
+            hourly_rate = round(daily_rate / daily_hours, 2) if daily_hours else 0
+
             records = Attendance.query.filter(
                 Attendance.user_id == emp.id,
                 Attendance.datetime_in >= range_start,
                 Attendance.datetime_in < range_end,
             ).all()
-            monthly_salary = emp.monthly_salary or 0  # full-time equivalent
-            # Days = distinct calendar dates with a time-in (guards against split records)
-            days_worked = len({a.datetime_in.date() for a in records})
-            hours_worked = sum(a.compute_hours_worked() for a in records)
-            open_days += sum(1 for a in records if a.datetime_out is None and a.actual_hours is None)
-            leave_days = LeaveDay.query.filter(
+            # Distinct dates with a time-in (guards against split records); weekend work still
+            # shows in days_worked but can't cancel a weekday absence.
+            worked_dates = {a.datetime_in.date() for a in records}
+            leave_dates = {row[0] for row in db.session.query(LeaveDay.date).filter(
                 LeaveDay.user_id == emp.id,
                 LeaveDay.date >= cutoff_start,
                 LeaveDay.date <= cutoff_end,
                 func.upper(LeaveDay.leave_type).in_(PAID_LEAVE_TYPES),
-            ).count()
+            )}
+            # Absent = elapsed weekdays with neither attendance nor approved leave. Weekdays before
+            # date_hired count as absent too, which prorates a mid-cutoff hire.
+            absent_days = len(elapsed_weekdays - worked_dates - leave_dates)
 
             entry = PayrollEntry(
                 payroll_run_id=run.id,
                 user_id=emp.id,
                 monthly_salary=monthly_salary,
-                hourly_rate=round(monthly_salary / STANDARD_MONTHLY_HOURS, 2),
-                days_worked=days_worked,
-                hours_worked=round(hours_worked, 2),
-                leave_days=leave_days,
-                ot_hours_regular=sum(a.ot_hours_regular or 0 for a in records),
-                ot_hours_restday=sum(a.ot_hours_restday or 0 for a in records),
+                daily_hours=daily_hours,
+                daily_rate=daily_rate,
+                hourly_rate=hourly_rate,
+                expected_workdays=expected_workdays,
+                days_worked=len(worked_dates),
+                leave_days=len(leave_dates),
+                absent_days=absent_days,
+                base_pay=round(monthly_salary / salary_divisor, 2) if monthly_salary else 0,
+                # Late / undertime / OT start at 0 and are entered by the admin. Attendance OT
+                # is NOT summed: OT pay needs an approved OT request (Phase P-2).
             )
             entry.recalculate()
             run.entries.append(entry)
@@ -2924,10 +2970,11 @@ def payroll_new():
         refresh_payroll_totals(run)
         db.session.commit()
 
-        flash(f'Payroll generated for {run.employee_count} employees. Total net: ₱{run.total_net:,.2f}', 'success')
-        if open_days:
-            flash(f'{open_days} attendance day(s) in this period have no time-out and were counted as 8 hours. '
-                  f'Check the Hours column (or set Actual Hours on those attendance records).', 'warning')
+        flash(f'Payroll generated for {run.employee_count} employees. Base pay set; '
+              f'review late/absent/OT before finalizing.', 'success')
+        if cutoff_end > today:
+            flash(f'This cutoff ends after today, so absences are only counted through '
+                  f'{fmt_day(today)}. Regenerate after the cutoff ends.', 'warning')
         if overlap:
             flash(f'Heads up: this period overlaps "{overlap.title}" ({overlap.status}).', 'warning')
         return redirect(url_for('payroll_edit', run_id=run.id))
@@ -3059,18 +3106,24 @@ def payroll_export_xlsx(run_id):
     ws['A3'] = f'Status: {run.status.upper()}'
 
     columns = [
-        ('Employee', None), ('FTE Salary', 'monthly_salary'), ('Hourly Rate', 'hourly_rate'), ('Days Worked', 'days_worked'), ('Hours Worked', 'hours_worked'),
-        ('Basic Pay', 'basic_pay'), ('Leave Days', 'leave_days'), ('Leave Pay', 'leave_pay'),
-        ('OT Hrs (Reg)', 'ot_hours_regular'), ('OT Hrs (Rest)', 'ot_hours_restday'), ('OT Pay', 'ot_pay'),
-        ('Allowance', 'allowance'), ('Other Earnings', 'other_earnings'), ('Gross Pay', 'gross_pay'),
+        ('Employee', None), ('Monthly Salary', 'monthly_salary'), ('Daily Rate', 'daily_rate'),
+        ('Hourly Rate', 'hourly_rate'),
+        ('Expected Days', 'expected_workdays'), ('Days Worked', 'days_worked'), ('Leave Days', 'leave_days'),
+        ('Absent Days', 'absent_days'),
+        ('Base Pay', 'base_pay'), ('Absent Deduction', 'absent_deduction'),
+        ('Late (min)', 'late_minutes'), ('Late Deduction', 'late_deduction'),
+        ('UT (hrs)', 'undertime_hours'), ('UT Deduction', 'undertime_deduction'),
+        ('OT Reg (hrs)', 'ot_hours_regular'), ('OT Rest (hrs)', 'ot_hours_restday'), ('OT Pay', 'ot_pay'),
+        ('Leave Pay', 'leave_pay'), ('Allowance', 'allowance'), ('Other Earnings', 'other_earnings'),
+        ('Gross Pay', 'gross_pay'),
         ('SSS', 'sss'), ('PhilHealth', 'philhealth'), ('Pag-IBIG', 'pagibig'),
         ('SSS Loan', 'sss_loan'), ('Pag-IBIG Loan', 'pagibig_loan'), ('Cash Advance', 'cash_advance'),
-        ('Late/UT', 'late_undertime'), ('Other', 'other_deduction'),
-        ('Total Deductions', 'total_deductions'), ('Net Pay', 'net_pay'),
+        ('Other', 'other_deduction'), ('Total Deductions', 'total_deductions'), ('Net Pay', 'net_pay'),
     ]
-    money = {'monthly_salary', 'hourly_rate', 'basic_pay', 'leave_pay', 'ot_pay', 'allowance', 'other_earnings',
-             'gross_pay', 'sss', 'philhealth', 'pagibig', 'sss_loan', 'pagibig_loan',
-             'cash_advance', 'late_undertime', 'other_deduction', 'total_deductions', 'net_pay'}
+    money = {'monthly_salary', 'daily_rate', 'hourly_rate', 'base_pay', 'absent_deduction', 'late_deduction',
+             'undertime_deduction', 'ot_pay', 'leave_pay', 'allowance', 'other_earnings', 'gross_pay',
+             'sss', 'philhealth', 'pagibig', 'sss_loan', 'pagibig_loan', 'cash_advance',
+             'other_deduction', 'total_deductions', 'net_pay'}
 
     header_row = 5
     for col, (label, _) in enumerate(columns, 1):
